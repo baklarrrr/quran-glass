@@ -30,4 +30,16 @@ Nothing of the Quran is stored in this repository; it is loaded while the app ru
 - Link library: [mqtt.js](https://github.com/mqttjs/MQTT.js) 5.16.0 (MIT), in `vendor/` with its licence.
 
 Gilding follows the recorded timing, the wearer's own marks or what the phone hears. It does not check
-tajwīd.
+tajwīd. A word the phone heard but could not make out is gilded in a fainter gold.
+
+## Privacy: Follow my voice
+
+While Follow my voice is on, the glasses and the phone exchange short messages through public MQTT
+brokers: broker.emqx.io, broker.hivemq.com and, if neither can be reached, public.cloud.shiftr.io. The
+glasses send where to follow from (again when the wearer moves), a check-in every 20 seconds and a stop;
+the phone sends its status, the loudness it hears and the positions of the words it heard. Each message
+is sealed with AES-GCM using the pairing key that Tidal Glass stored on these glasses, so the brokers
+relay ciphertext. They can still see the topic name and when messages pass. When the browser cannot read
+the glasses' battery, the glasses also open the same links for a few seconds at launch and on return, to
+fetch the phone's sealed status report, which carries it. This web app records no audio. What the phone
+app does with the microphone audio has not been independently verified.
