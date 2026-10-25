@@ -513,6 +513,7 @@ function drawTop() {
     $('whoText').textContent = reciter().short + extra;
   }
   $('liveDot').classList.toggle('live', (playing && !reciting()) || (voice.on && voice.st === 'listening'));
+  $('who').classList.toggle('listening', voice.on && voice.st === 'listening' && reciting());
   shown($('playIcon'), !playing);
   shown($('pauseIcon'), playing);
   $('play').setAttribute('aria-label', playing ? 'Pause' : 'Play');
@@ -548,6 +549,7 @@ function drawAyahNow() {
   const verse = currentVerse();
   if (!verse) return;
   restComet();
+  endSparks(); // sparks belong to the ayah that finished, never over the next one
   const el = $('ayah');
   el.className = 'ayah';
   el.textContent = '';
@@ -600,11 +602,24 @@ function drawAyahNow() {
 function fitAyah() {
   const box = $('textbox');
   const el = $('ayah');
+  box.style.flex = '';
+  box.style.blockSize = '';
+  box.style.marginBlockEnd = '';
   let size = settings.size ? 36 : 44;
   el.style.fontSize = `${size}px`;
   while (box.scrollHeight > box.clientHeight + 1 && size > 26) {
     size -= 2;
     el.style.fontSize = `${size}px`;
+  }
+  // An ayah that still scrolls gets a box a whole number of lines tall, so neither the top nor the bottom
+  // line is ever cut (vowel marks there change letters) and the last scroll stop is a whole line too. The
+  // spare height sits below the box; the box height depends on the mode and the meaning, so it is measured.
+  if (box.scrollHeight > box.clientHeight + 1) {
+    const lh = parseFloat(getComputedStyle(el).lineHeight) || size * 1.95;
+    const lines = Math.max(1, Math.floor(box.clientHeight / lh));
+    box.style.flex = 'none';
+    box.style.blockSize = `${lines * lh}px`;
+    box.style.marginBlockEnd = 'auto';
   }
   box.scrollTop = 0;
 }
@@ -620,7 +635,9 @@ function keepInView() {
   const lh = parseFloat(getComputedStyle(ayah).lineHeight) || 50;
   const line = Math.floor((s.offsetTop + s.offsetHeight / 2 - ayah.offsetTop) / lh);
   const target = ayah.offsetTop + Math.max(0, line - 1) * lh;
-  box.scrollTop = Math.min(Math.round(target), box.scrollHeight - box.clientHeight);
+  const top = Math.min(Math.round(target), box.scrollHeight - box.clientHeight);
+  // A short ease when effects are on, so a line change is followed rather than jumped.
+  if (top !== box.scrollTop) box.scrollTo({ top, behavior: effects() === 'off' ? 'auto' : 'smooth' });
 }
 
 // The English meaning shows three lines; a longer one moves on with the recitation (frac = share of the
@@ -631,8 +648,9 @@ function syncMeaning(frac) {
   if (extra <= 1) { m.classList.remove('more'); return; }
   const lh = parseFloat(getComputedStyle(m).lineHeight) || 22;
   const lines = Math.round(extra / lh);
-  m.scrollTop = Math.round(Math.min(1, Math.max(0, frac)) * lines) * lh;
-  m.classList.toggle('more', m.scrollTop < extra - 1);
+  const top = Math.round(Math.min(1, Math.max(0, frac)) * lines) * lh;
+  if (Math.abs(top - m.scrollTop) > 1) m.scrollTo({ top, behavior: effects() === 'off' ? 'auto' : 'smooth' });
+  m.classList.toggle('more', top < extra - 1);
 }
 
 // A hint always shows (isNext), even with word meanings hidden: a press that showed nothing would still
@@ -662,7 +680,7 @@ function highlight(t, force) {
   const end = $('endMark');
   if (end && spans.length) {
     const lastSeg = tm.segs[tm.segs.length - 1];
-    const finished = p === Number(spans[spans.length - 1].dataset.p) && t >= lastSeg[2];
+    const finished = p === Number(spans[spans.length - 1].dataset.p) && t >= medallionAt(lastSeg);
     if (finished && !end.classList.contains('done')) {
       end.classList.add('done');
       if (!force) sparks(end);
@@ -1173,7 +1191,7 @@ function sparks(el) {
     fxLast = performance.now();
   }
   const x = r.left + r.width / 2 - c.left;
-  const y = r.top + r.height / 2 - c.top;
+  const y = r.top + r.height * 0.15 - c.top; // from its crown, so the burst never covers the ayah number
   for (let i = 0; i < 18; i++) {
     const a = -Math.PI / 2 + (Math.random() - 0.5) * (Math.PI * 5 / 9); // upwards, within 50° of vertical
     const v = 60 + Math.random() * 120;
@@ -1339,14 +1357,20 @@ function loop() {
   if (document.visibilityState === 'visible' && view.screen === 'reader') loopTimer = setTimeout(loop, nextWake());
 }
 
+// When the medallion gilds in Follow the reciter: 400 ms before the last word ends (not after, when the
+// next ayah is about to be drawn and the gold would barely show), and never before that word starts.
+function medallionAt(lastSeg) {
+  return Math.max(lastSeg[1], lastSeg[2] - 400);
+}
+
 function nextWake() {
   const tm = timing && cur && timing.t.get(cur.v);
   if (!tm || !tm.segs.length) return 250;
   const t = audio.currentTime * 1000;
   const next = tm.segs.find((s) => s[1] > t + 4);
-  const lastEnd = tm.segs[tm.segs.length - 1][2];
+  const lastEnd = medallionAt(tm.segs[tm.segs.length - 1]);
   let due = next ? next[1] : tm.to;
-  if (lastEnd > t + 4 && lastEnd < due) due = lastEnd; // the medallion gilds as the last word ends
+  if (lastEnd > t + 4 && lastEnd < due) due = lastEnd; // the medallion gilds near the last word's end
   return Math.max(16, Math.min(400, (due - t) / (audio.playbackRate || 1)));
 }
 

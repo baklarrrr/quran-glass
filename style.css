@@ -172,8 +172,11 @@ button:focus .ar-name { background: var(--gilt); -webkit-background-clip: text; 
   filter: drop-shadow(0 0 7px rgba(255, 196, 90, 0.55));
   text-decoration: underline 2px var(--gold); text-decoration-skip-ink: none; text-underline-offset: 0.42em;
 }
-/* Follow my voice: a word the phone heard but could not make out is gilded more softly. */
-.ayah .w.said.unclear { opacity: 0.55; }
+/* Follow my voice: a word the phone heard but could not make out keeps its gold (never dimmer than the
+   words still to come) and carries a dotted gold line that says "not sure". */
+.ayah .w.said.unclear {
+  text-decoration: underline dotted 2px var(--gold); text-decoration-skip-ink: none; text-underline-offset: 0.42em;
+}
 /* Where the wearer is in Recite myself: a gold line under the next word, at the text (not the box). */
 .ayah .w.next {
   text-decoration: underline 2px rgba(255, 210, 122, 0.7); text-decoration-skip-ink: none; text-underline-offset: 0.42em;
@@ -234,8 +237,10 @@ button:focus .ar-name { background: var(--gilt); -webkit-background-clip: text; 
 .round.primary { inline-size: 80px; block-size: 80px; border: 3px solid rgba(236, 231, 220, 0.6); }
 .round.primary svg { inline-size: 38px; block-size: 38px; }
 #hint.primary { border-color: rgba(255, 210, 122, 0.85); color: var(--gold); }
-/* Listening: the microphone button turns gold while the phone follows the voice. */
-#voice.on { border-color: rgba(255, 210, 122, 0.85); color: var(--gold); }
+/* Listening: the microphone button fills with gold light while the phone follows the voice (the Hint
+   button beside it is a ring only), and the top line says Listening in gold. */
+#voice.on { border-color: rgba(255, 210, 122, 0.85); color: var(--gold); background: var(--gold-soft); }
+.who.listening { color: var(--gold); }
 /* One line always, so a tip never shifts the text above it. */
 .tip { flex: none; min-block-size: 22px; text-align: center; font-size: 17px; font-weight: 650; color: var(--gold); opacity: 0; margin-block-start: -4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tip.on { opacity: 1; }
