@@ -8,8 +8,11 @@ const CACHE = 'quran-glass-v4';
 const SCOPE = new URL(self.registration.scope);
 const SHELL = ['./', 'index.html', 'style.css', 'app.js', 'icon.svg', 'icon-mono.svg'];
 
+// The copy is filled straight from the server, never from the browser's own cache.
 self.addEventListener('install', (event) => {
-  event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(SHELL)).then(() => self.skipWaiting()));
+  event.waitUntil(caches.open(CACHE)
+    .then((cache) => cache.addAll(SHELL.map((u) => new Request(u, { cache: 'no-cache' }))))
+    .then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', (event) => {
@@ -27,7 +30,9 @@ self.addEventListener('fetch', (event) => {
     const cache = await caches.open(CACHE);
     try {
       const response = await Promise.race([
-        fetch(event.request),
+        // no-cache: always ask the server (a tiny 304 when nothing changed), so Back → Refresh never
+        // shows a version the browser's own cache kept for up to ten minutes after an update.
+        fetch(event.request.url, { cache: 'no-cache', credentials: 'same-origin' }),
         new Promise((_, reject) => setTimeout(() => reject(new Error('slow network')), 3000)),
       ]);
       if (response.ok) cache.put(event.request, response.clone());
