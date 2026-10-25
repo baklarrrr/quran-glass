@@ -5,7 +5,8 @@
    on its own: the gilding advances only with the reciter or with the wearer's own marks. */
 :root {
   --ink: #ffffff;
-  --word: #ece7dc;              /* calm, slightly warm white for words still to come */
+  --word: #ece7dc;              /* calm, slightly warm white */
+  --word-ahead: rgba(236, 231, 220, 0.7); /* words still to come: dimmer than gold, so the eye follows the gilding */
   --soft: #d9dde3;
   --dim: #9aa3ad;
   --hair: rgba(255, 255, 255, 0.32);
@@ -106,7 +107,7 @@ button:focus .ar-name { background: var(--gilt); -webkit-background-clip: text; 
 .pill { block-size: 56px; border-radius: 16px; font-size: 19px; }
 
 /* ---- surah list ------------------------------------------------------------------------------ */
-.surahs { list-style: none; margin: 0; padding: 3px 4px 6px; display: flex; flex-direction: column; gap: 8px; min-block-size: 0; overflow: auto; scrollbar-width: none; }
+.surahs { list-style: none; margin: 0; padding: 8px 12px 14px; display: flex; flex-direction: column; gap: 8px; min-block-size: 0; overflow: auto; scrollbar-width: none; }
 .surahs::-webkit-scrollbar { display: none; }
 .surahs button {
   inline-size: 100%; display: grid; grid-template-columns: 44px minmax(0, 1fr) auto; align-items: center; justify-items: start; gap: 14px;
@@ -124,7 +125,7 @@ button:focus .ar-name { background: var(--gilt); -webkit-background-clip: text; 
 /* ---- reader --------------------------------------------------------------------------------- */
 .reader { gap: 10px; padding-block-end: 12px; position: relative; }
 .topline { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 15px; color: var(--dim); flex: none; min-block-size: 20px; }
-.where { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.where { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--soft); } /* carries the surah and ayah: readable outdoors */
 .who { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .dot { inline-size: 8px; block-size: 8px; border-radius: 50%; background: var(--dim); }
 .dot.live { background: var(--gold); box-shadow: 0 0 8px var(--gold); }
@@ -142,39 +143,56 @@ button:focus .ar-name { background: var(--gilt); -webkit-background-clip: text; 
 /* Its own layer, so the streak can pass behind the letters. */
 .textbox { flex: 1; min-block-size: 0; overflow: hidden auto; scrollbar-width: none; display: flex; border-radius: 18px; outline: none; position: relative; isolation: isolate; }
 .textbox::-webkit-scrollbar { display: none; }
-/* In Recite myself the text itself takes the pinches; a faint gold frame says so. */
-.textbox:focus { box-shadow: inset 0 0 0 1.5px rgba(255, 210, 122, 0.42); }
+/* In Recite myself the text itself takes the pinches; a gold frame says so (strong enough to read
+   over a bright sky). */
+.textbox:focus { box-shadow: inset 0 0 0 2px var(--gold); }
 .ayah {
   margin: auto 0; inline-size: 100%; padding-inline: 6px;
   font-family: var(--arabic); font-weight: var(--arabic-weight); font-size: 44px; line-height: 1.95; text-align: center;
   word-spacing: 0.06em; color: var(--word);
 }
-.ayah .w { position: relative; color: var(--word); }
+/* Light follows the recitation: words still to come are the dimmest, gilded words glow gold and the
+   word being said is the brightest thing on screen. */
+.ayah .w { position: relative; color: var(--word-ahead); }
 .ayah .w.said, .ayah .w.now, .ayah .end.done {
   background: var(--gilt);
   -webkit-background-clip: text; background-clip: text;
   color: transparent;
+  /* The gold is painted inside each word's box; pause marks such as ۛ and ۚ sit just outside the
+     glyph box, so the box is widened (without moving anything) to keep them. */
+  padding: 0.34em 0.3em; margin: -0.34em -0.3em;
 }
-/* The word being said: brighter gold and a soft halo (light adds on this display). */
+/* The word being said: the brightest gold, a soft halo, and a gold line under it that does not rely
+   on colour alone. */
 .ayah .w.now {
   background: var(--gilt-now);
   -webkit-background-clip: text; background-clip: text;
   filter: drop-shadow(0 0 7px rgba(255, 196, 90, 0.55));
+  text-decoration: underline 2px var(--gold); text-decoration-skip-ink: none; text-underline-offset: 0.42em;
 }
 /* Follow my voice: a word the phone heard but could not make out is gilded more softly. */
 .ayah .w.said.unclear { opacity: 0.55; }
-/* Where the wearer is in Recite myself: a faint gold line under the next word. */
-.ayah .w.next { box-shadow: inset 0 -2px 0 rgba(255, 210, 122, 0.6); }
-.ayah .w.veiled { color: transparent; border-block-end: 2px dotted rgba(255, 255, 255, 0.35); }
-.ayah .w.veiled.next { border-block-end-color: rgba(255, 210, 122, 0.75); box-shadow: none; }
+/* Where the wearer is in Recite myself: a gold line under the next word, at the text (not the box). */
+.ayah .w.next {
+  text-decoration: underline 2px rgba(255, 210, 122, 0.7); text-decoration-skip-ink: none; text-underline-offset: 0.42em;
+}
+.ayah .w.veiled {
+  color: transparent;
+  text-decoration: underline dotted 2px rgba(255, 255, 255, 0.35); text-decoration-skip-ink: none; text-underline-offset: 0.42em;
+}
+.ayah .w.veiled.next { text-decoration-color: rgba(255, 210, 122, 0.75); }
 /* Hint, step one in Memorise: the first letter shows where the hidden word begins. */
 .ayah .w.lettered::before {
   content: attr(data-first); position: absolute; inset-inline-start: 0; inset-block-start: 0;
   color: var(--gold);
 }
 /* Hint, step two: the word itself, still to be gilded by the wearer's own mark. */
-.ayah .w.hinted { color: var(--word); opacity: 0.8; border-block-end: 2px dotted rgba(255, 210, 122, 0.75); }
-.ayah .end { color: rgba(233, 194, 122, 0.72); font-size: 0.82em; }
+.ayah .w.hinted {
+  color: var(--word); opacity: 0.8;
+  text-decoration: underline dotted 2px rgba(255, 210, 122, 0.75); text-decoration-skip-ink: none; text-underline-offset: 0.42em;
+}
+/* Solid gold: it carries the ayah number, and fine lines at lower light vanish outdoors. */
+.ayah .end { color: #e9c27a; font-size: 0.82em; }
 .ayah .end.done { filter: drop-shadow(0 0 6px rgba(255, 196, 90, 0.5)); }
 .ayah.loading { font-family: inherit; font-size: 20px; color: var(--dim); }
 
@@ -182,7 +200,7 @@ button:focus .ar-name { background: var(--gilt); -webkit-background-clip: text; 
 /* Gilding arrives as a light passing through the letters, in reading direction (right to left). */
 @keyframes gild-sweep { from { background-position: 0% 0, 0 0; } to { background-position: 100% 0, 0 0; } }
 .fx-calm .ayah .w.said.sweep, .fx-full .ayah .w.said.sweep {
-  background: linear-gradient(100deg, transparent 38%, rgba(255, 255, 255, 0.95) 50%, transparent 62%), var(--gilt);
+  background: linear-gradient(100deg, transparent 38%, #fff3cf 50%, transparent 62%), var(--gilt);
   background-size: 300% 100%, 100% 100%;
   -webkit-background-clip: text; background-clip: text;
   animation: gild-sweep 760ms cubic-bezier(0.3, 0.2, 0.5, 0.95) 1;
@@ -207,7 +225,8 @@ button:focus .ar-name { background: var(--gilt); -webkit-background-clip: text; 
 .controls { display: flex; justify-content: center; align-items: center; gap: 18px; flex: none; }
 .round { border-radius: 50%; inline-size: 64px; block-size: 64px; position: relative; }
 .round svg { inline-size: 28px; block-size: 28px; }
-.round.primary { inline-size: 80px; block-size: 80px; border: 3px solid var(--ink); }
+/* Softer than pure white at rest, so the gilded text stays the brightest thing; focus makes it gold. */
+.round.primary { inline-size: 80px; block-size: 80px; border: 3px solid rgba(236, 231, 220, 0.6); }
 .round.primary svg { inline-size: 38px; block-size: 38px; }
 #hint.primary { border-color: rgba(255, 210, 122, 0.85); color: var(--gold); }
 /* Listening: the microphone button turns gold while the phone follows the voice. */
@@ -229,7 +248,7 @@ button:focus .ar-name { background: var(--gilt); -webkit-background-clip: text; 
 .prow ol { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-direction: column; gap: 3px; font-size: 15px; color: var(--soft); }
 
 /* ---- options -------------------------------------------------------------------------------- */
-.optrows { display: flex; flex-direction: column; gap: 8px; min-block-size: 0; overflow: auto; scrollbar-width: none; padding: 3px 4px 6px; }
+.optrows { display: flex; flex-direction: column; gap: 8px; min-block-size: 0; overflow: auto; scrollbar-width: none; padding: 8px 12px 14px; } /* room for the focus glow */
 .optrows::-webkit-scrollbar { display: none; }
 .orow {
   flex: none; display: grid; grid-template-columns: 150px minmax(0, 1fr); align-items: center; gap: 12px;
@@ -249,6 +268,8 @@ button:focus .ar-name { background: var(--gilt); -webkit-background-clip: text; 
 .orow.action { grid-template-columns: 1fr; text-align: center; }
 .orow.action .lab { font-weight: 700; }
 .orow.action.armed { border-color: rgba(255, 157, 138, 0.9); }
+/* Armed for the second pinch: the focus ring itself turns warning red, so it is not hidden under gold. */
+.orow.action.armed:focus { border-color: #ff9d8a; background: rgba(255, 157, 138, 0.16); box-shadow: 0 0 0 3px #ff9d8a, 0 0 16px rgba(255, 157, 138, 0.5); }
 .orow.action.armed .lab { color: #ffb8a8; }
 .credit { flex: none; margin-top: auto; font-size: 13px; line-height: 1.35; color: var(--dim); }
 

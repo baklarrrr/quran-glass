@@ -601,12 +601,18 @@ function fitAyah() {
   box.scrollTop = 0;
 }
 
-// Keeps the word in play visible when a long ayah scrolls.
+// Keeps the word in play visible when a long ayah scrolls: by whole lines (a line cut at the top edge
+// loses its vowel marks), with the word's line second from the top so the words after it show too.
 function keepInView() {
   const box = $('textbox');
   if (box.scrollHeight <= box.clientHeight) return;
-  const i = reciting() ? Math.min(reciteAt, spans.length - 1) : litWord - 1;
-  if (spans[i]) spans[i].scrollIntoView({ block: 'nearest' });
+  const s = spans[reciting() ? Math.min(reciteAt, spans.length - 1) : Math.max(0, litWord - 1)];
+  if (!s) return;
+  const ayah = $('ayah');
+  const lh = parseFloat(getComputedStyle(ayah).lineHeight) || 50;
+  const line = Math.floor((s.offsetTop + s.offsetHeight / 2 - ayah.offsetTop) / lh);
+  const target = ayah.offsetTop + Math.max(0, line - 1) * lh;
+  box.scrollTop = Math.min(Math.round(target), box.scrollHeight - box.clientHeight);
 }
 
 function showGloss(word, isNext) {
@@ -628,6 +634,17 @@ function highlight(t, force) {
   for (const s of tm.segs) {
     if (s[1] <= t) p = s[0]; else break;
   }
+  // The medallion gilds as the last word ends (not as it starts), with a few sparks: the ayah is
+  // complete while it is still on screen.
+  const end = $('endMark');
+  if (end && spans.length) {
+    const lastSeg = tm.segs[tm.segs.length - 1];
+    const finished = p === Number(spans[spans.length - 1].dataset.p) && t >= lastSeg[2];
+    if (finished && !end.classList.contains('done')) {
+      end.classList.add('done');
+      if (!force) sparks(end);
+    } else if (!finished) end.classList.remove('done');
+  }
   if (p === litWord && !force) return;
   const before = litWord;
   litWord = p;
@@ -641,14 +658,6 @@ function highlight(t, force) {
     setCls(i, wp < p ? 'w said' : wp === p ? 'w now' : up);
   }
   if (!force && before > 0 && p > before) trail(from, to);
-  // The medallion gilds as the last word is said, with a few sparks: the ayah is complete while it is
-  // still on screen.
-  const end = $('endMark');
-  const last = spans.length ? Number(spans[spans.length - 1].dataset.p) : -1;
-  if (end) {
-    end.classList.toggle('done', p === last);
-    if (p === last && before !== last && !force) sparks(end);
-  }
   keepInView();
   const verse = currentVerse();
   showGloss(verse && verse.words.find((w) => w.p === p));
@@ -1133,7 +1142,7 @@ function sparks(el) {
   const x = r.left + r.width / 2 - c.left;
   const y = r.top + r.height / 2 - c.top;
   for (let i = 0; i < 18; i++) {
-    const a = -Math.PI / 2 + (Math.random() - 0.5) * Math.PI * 1.7; // mostly upwards
+    const a = -Math.PI / 2 + (Math.random() - 0.5) * (Math.PI * 5 / 9); // upwards, within 50° of vertical
     const v = 60 + Math.random() * 120;
     fxParts.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, r: 0.9 + Math.random() * 1.3, age: 0, life: 0.55 + Math.random() * 0.4 });
   }
@@ -1566,7 +1575,20 @@ function buildOptions() {
   box.appendChild(reset);
   box.addEventListener('keydown', (e) => {
     const row = e.target.closest && e.target.closest('.orow');
-    if (!row || (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight' && e.key !== 'Enter')) return;
+    if (!row) return;
+    // Up and down step row by row here: the browser's own spatial navigation sometimes only scrolled
+    // the list, so a later swipe changed the wrong setting.
+    if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+      const rows = [...box.querySelectorAll('.orow')].filter((r) => !r.hidden);
+      const next = rows[rows.indexOf(row) + (e.key === 'ArrowDown' ? 1 : -1)];
+      if (!next) return; // past the first or last row: the browser moves on to the buttons
+      e.preventDefault();
+      e.stopPropagation();
+      next.focus();
+      next.scrollIntoView({ block: 'nearest' });
+      return;
+    }
+    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight' && e.key !== 'Enter') return;
     e.preventDefault();
     e.stopPropagation();
     if (row === reset) { if (e.key === 'Enter') pressReset(); return; }
