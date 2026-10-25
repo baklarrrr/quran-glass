@@ -2234,7 +2234,9 @@ function wire() {
   $('mode').addEventListener('click', () => setMode(reciting() ? 'listen' : 'recite'));
 
   // Recite myself: the text takes the pinches. Pinch or swipe right gilds the next word, swipe left
-  // takes one back. Up and down still move between the text and the buttons.
+  // takes one back. Up and down move between the text and the buttons, and never scroll the text: it
+  // follows his word by itself, and on a long ayah (2:282) swiping it took twelve swipes to reach the
+  // buttons, losing his word on the way (Director recheck 2026-10-25). Coming back, his word shows again.
   const box = $('textbox');
   box.addEventListener('keydown', (e) => {
     if (!reciting()) return;
@@ -2246,8 +2248,16 @@ function wire() {
       e.preventDefault();
       e.stopPropagation();
       undoWord();
+    } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.key === 'ArrowDown') {
+        const below = ['hint', 'voice', 'nextAyah'].map((id) => $(id)).find((b) => b && !b.hidden);
+        if (below) below.focus();
+      }
     }
   });
+  box.addEventListener('focus', () => { if (reciting()) keepInView(); });
   box.addEventListener('click', (e) => { if (reciting() && e.detail) gildNext(); });
 
   // The surah list is one column, so sideways swipes jump ten at a time.
