@@ -29,7 +29,8 @@ const RECITERS = [
   { id: 2, name: 'Abdul Basit, murattal', short: 'Abdul Basit' },
   { id: 1, name: 'Abdul Basit, mujawwad', short: 'Abdul Basit (mujawwad)' },
   { id: 9, name: 'Al-Minshawi, murattal', short: 'Minshawi' },
-  { id: 8, name: 'Al-Minshawi, mujawwad', short: 'Minshawi (mujawwad)' },
+  // Al-Minshawi, mujawwad (Quran.com reciter 8) is left out while its recordings return 404 (checked
+  // 2026-10-25 for surahs 1, 2, 18, 36 and 112); a saved choice of it falls back to the recommended one.
   { id: 3, name: 'Abdur-Rahman As-Sudais', short: 'Sudais' },
   { id: 4, name: 'Abu Bakr Ash-Shatri', short: 'Shatri' },
   { id: 5, name: 'Hani Ar-Rifai', short: 'Rifai' },
@@ -438,6 +439,7 @@ async function renderReader() {
   if (!cur || cur.ch !== ch || cur.v !== v) await moveTo(ch, v, playing && cur && cur.ch === ch, at);
   else drawAyah();
   focusFirst(view.focus && $(view.focus), reciting() ? 'textbox' : 'play');
+  if (playing) loop(); // back on the reader: word lighting resumes
 }
 
 // Shows ayah v of surah ch. While playing in the same surah the recitation jumps there too. In
@@ -446,6 +448,7 @@ async function moveTo(ch, v, keepPlaying, at = 0) {
   const surahChanged = !cur || cur.ch !== ch;
   cur = { ch, v };
   if (surahChanged) voice.unclear.clear();
+  hideTip($('tip')); // an "Ayah complete" from the ayah before never stays on the next one
   // The wearer moved by hand while the phone listens: it follows (a move the phone itself made is not
   // sent back to it).
   if (voice.on && !voice.moving) phoneSend(surahChanged ? 'qStart' : 'qJump', surahChanged ? { s: ch, a: v } : { a: v });
@@ -527,7 +530,9 @@ function setCls(i, cls) {
   const wasGilded = spanCls[i].includes('said');
   spans[i].className = cls;
   spanCls[i] = cls;
-  if (!redrawing && !wasGilded && cls.includes('said')) sweep(spans[i]);
+  // The light passes through a word the wearer has just marked (Recite myself). Following a reciter it
+  // would run on the word already finished and pull the eye back, so there the gold simply arrives.
+  if (!redrawing && !wasGilded && cls.includes('said') && reciting()) sweep(spans[i]);
 }
 
 function drawAyah() {
@@ -558,7 +563,8 @@ function drawAyahNow() {
     spanCls.push('');
   });
   if (verse.end) {
-    el.appendChild(document.createTextNode(' '));
+    // A no-break space keeps the ayah's number with its last word (it was alone on a line in 430 ayahs).
+    el.appendChild(document.createTextNode(' '));
     const e = document.createElement('span');
     e.className = 'end';
     e.id = 'endMark';
@@ -568,6 +574,7 @@ function drawAyahNow() {
   }
   $('meaning').textContent = settings.meaning ? verse.meaning : '';
   shown($('meaning'), settings.meaning);
+  $('meaning').scrollTop = 0;
   $('gloss').textContent = '';
   shown($('gloss'), settings.gloss);
   if (reciting()) {
@@ -578,6 +585,7 @@ function drawAyahNow() {
     spans.forEach((s, i) => setCls(i, up));
     litWord = -1;
     if (playing) highlight(audio.currentTime * 1000, true);
+    else syncMeaning(0);
   }
   drawTop();
   fitAyah();
@@ -615,10 +623,25 @@ function keepInView() {
   box.scrollTop = Math.min(Math.round(target), box.scrollHeight - box.clientHeight);
 }
 
+// The English meaning shows three lines; a longer one moves on with the recitation (frac = share of the
+// ayah gilded), a whole line at a time, and fades at the bottom while more follows.
+function syncMeaning(frac) {
+  const m = $('meaning');
+  const extra = m.scrollHeight - m.clientHeight;
+  if (extra <= 1) { m.classList.remove('more'); return; }
+  const lh = parseFloat(getComputedStyle(m).lineHeight) || 22;
+  const lines = Math.round(extra / lh);
+  m.scrollTop = Math.round(Math.min(1, Math.max(0, frac)) * lines) * lh;
+  m.classList.toggle('more', m.scrollTop < extra - 1);
+}
+
+// A hint always shows (isNext), even with word meanings hidden: a press that showed nothing would still
+// count as a hint.
 function showGloss(word, isNext) {
   const gloss = $('gloss');
   gloss.textContent = '';
-  if (!word || !settings.gloss) return;
+  if (!word || (!settings.gloss && !isNext)) return;
+  if (isNext) shown(gloss, true);
   const tr = document.createElement('span');
   tr.className = 'tr';
   tr.textContent = word.tr;
@@ -659,6 +682,7 @@ function highlight(t, force) {
   }
   if (!force && before > 0 && p > before) trail(from, to);
   keepInView();
+  syncMeaning(spans.length ? Math.max(0, spans.findIndex((s) => Number(s.dataset.p) === p)) / spans.length : 0);
   const verse = currentVerse();
   showGloss(verse && verse.words.find((w) => w.p === p));
 }
@@ -688,6 +712,7 @@ function paintRecite() {
   }
   const end = $('endMark');
   if (end) end.classList.toggle('done', reciteAt >= verse.words.length);
+  syncMeaning(reciteAt / verse.words.length);
 }
 
 function gildNext() {
@@ -1067,8 +1092,11 @@ async function peekPhoneBattery() {
 // streak from one word to the next, a few sparks when an ayah is complete. Nothing animates while the
 // text is still, and nothing runs off screen.
 
+// Battery: below 30% (not charging) Full effects run as Calm, below 15% they are off; it is said once.
 function effects() {
-  return REDUCED ? 'off' : settings.effects;
+  if (REDUCED || batteryTier === 'off') return 'off';
+  if (batteryTier === 'calm' && settings.effects === 'full') return 'calm';
+  return settings.effects;
 }
 
 function applyEffects() {
@@ -1301,8 +1329,20 @@ function loop() {
   loopTimer = 0;
   if (!playing) return;
   step();
-  // Smooth word lighting only while the display shows it; audio events keep time otherwise.
-  if (document.visibilityState === 'visible') loopTimer = setTimeout(loop, 60);
+  // Word lighting is redrawn only while the reader is on screen, and only when the next word (or the
+  // end of the ayah) is due, not every 60 ms; elsewhere the audio's own time events keep the place.
+  if (document.visibilityState === 'visible' && view.screen === 'reader') loopTimer = setTimeout(loop, nextWake());
+}
+
+function nextWake() {
+  const tm = timing && cur && timing.t.get(cur.v);
+  if (!tm || !tm.segs.length) return 250;
+  const t = audio.currentTime * 1000;
+  const next = tm.segs.find((s) => s[1] > t + 4);
+  const lastEnd = tm.segs[tm.segs.length - 1][2];
+  let due = next ? next[1] : tm.to;
+  if (lastEnd > t + 4 && lastEnd < due) due = lastEnd; // the medallion gilds as the last word ends
+  return Math.max(16, Math.min(400, (due - t) / (audio.playbackRate || 1)));
 }
 
 // The recitation is one file per surah, so the next ayah simply follows; repeats jump back.
@@ -1528,7 +1568,7 @@ function renderProgress() {
 
 const OPTIONS = [
   { k: 'mode', label: 'Mode', tip: 'Follow a reciter, or recite and pinch each word', values: ['listen', 'recite'], text: (v) => (v === 'recite' ? 'Recite myself' : 'Follow the reciter') },
-  { k: 'reciter', label: 'Reciter', tip: 'Swipe to hear each reciter’s voice', values: RECITERS.map((r) => r.id), text: (v) => { const r = RECITERS.find((x) => x.id === v) || RECITERS[0]; return r.custom ? `${r.name} · aligned` : r.name; } },
+  { k: 'reciter', label: 'Reciter', tip: 'Swipe to choose a reciter and hear a few seconds of each (while a recitation plays, it switches to them)', values: RECITERS.map((r) => r.id), text: (v) => { const r = RECITERS.find((x) => x.id === v) || RECITERS[0]; return r.custom ? `${r.name} · aligned` : r.name; } },
   { k: 'repeat', label: 'Each ayah', tip: 'How many times each ayah plays', values: REPEATS, text: (v) => (v === 0 ? 'Repeat endlessly' : v === 1 ? 'Once' : `${v} times`) },
   { k: 'speed', label: 'Speed', tip: 'Speed of the recitation', values: SPEEDS, text: (v) => `${v}×` },
   { k: 'meaning', label: 'Meaning', tip: 'English meaning under the ayah', values: [true, false], text: (v) => (v ? 'Shown' : 'Hidden') },
@@ -1539,7 +1579,7 @@ const OPTIONS = [
   { k: 'effects', label: 'Effects', tip: 'Full: gold sweep, trail and sparks · Calm: sweep only', values: EFFECTS, text: (v) => (REDUCED ? 'Off · reduced motion' : { full: 'Full', calm: 'Calm', off: 'Off' }[v]) },
 ];
 const RESET_TIP = 'Keeps your mode, your place and your progress';
-const RESET_LIST = 'Alafasy · once · 1× · large Scheherazade · full effects';
+const RESET_LIST = 'Alafasy · once · 1× · meanings shown · Memorise off · large Scheherazade · full effects';
 
 function buildOptions() {
   const box = $('optRows');
@@ -1603,6 +1643,7 @@ function buildOptions() {
 
 function changeOption(k, dir) {
   if (k === 'effects' && REDUCED) { flashIn('tip-options', 'Off: the system asks for reduced motion', 2600); return; }
+  hintStep = 0; // a hint started under other settings starts again (Memorise changes its steps)
   const o = OPTIONS.find((x) => x.k === k);
   const i = o.values.indexOf(settings[k]);
   const next = o.values[(Math.max(0, i) + dir + o.values.length) % o.values.length];
@@ -1821,6 +1862,7 @@ function prefetchPreviews() {
 // When the browser does not know, the phone's report (the glasses' battery as Meta's toolkit gives it
 // to Tidal Glass, in 5% steps) fills in. On the glasses both agreed (47% each, 2026-10-25 07:53).
 let batteryKnown = false;
+let batteryTier = '';  // '' | 'calm' (under 30%) | 'off' (under 15%), only while not charging
 
 function watchBattery() {
   if (!navigator.getBattery) { peekPhoneBattery(); return; }
@@ -1841,6 +1883,13 @@ function watchBattery() {
 }
 
 function drawBattery(level, charging) {
+  const tier = charging ? '' : level < 0.15 ? 'off' : level < 0.3 ? 'calm' : '';
+  if (tier !== batteryTier) {
+    batteryTier = tier;
+    applyEffects();
+    if (tier === 'off') showToast('Battery under 15%: effects off to save power');
+    else if (tier === 'calm' && settings.effects === 'full') showToast('Battery under 30%: calmer effects to save power');
+  }
   const pct = Math.round(level * 100);
   const fill = Math.max(1.5, 13.5 * level);
   const bolt = charging ? '<path d="M10.6 1.6 6.4 6.6h2.9l-1.1 3.8 4.3-5.1H9.6z" fill="#000" stroke="#000" stroke-width="2.4" stroke-linejoin="round"/><path d="M10.6 1.6 6.4 6.6h2.9l-1.1 3.8 4.3-5.1H9.6z"/>' : '';

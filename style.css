@@ -153,7 +153,9 @@ button:focus .ar-name { background: var(--gilt); -webkit-background-clip: text; 
 }
 /* Light follows the recitation: words still to come are the dimmest, gilded words glow gold and the
    word being said is the brightest thing on screen. */
-.ayah .w { position: relative; color: var(--word-ahead); }
+/* A word never breaks across lines: Quran.com sends a pause sign inside its word after a space, and a
+   break there carried the sign to the next line, over another word. */
+.ayah .w { position: relative; color: var(--word-ahead); white-space: nowrap; }
 .ayah .w.said, .ayah .w.now, .ayah .end.done {
   background: var(--gilt);
   -webkit-background-clip: text; background-clip: text;
@@ -217,10 +219,13 @@ button:focus .ar-name { background: var(--gilt); -webkit-background-clip: text; 
 
 .gloss { flex: none; min-block-size: 26px; text-align: center; font-size: 20px; color: var(--gold); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .gloss .tr { color: var(--soft); font-style: italic; }
+/* Three lines of the English meaning; a longer one moves on with the recitation a line at a time and
+   fades at the bottom while more follows (it was cut off in 18.5% of ayahs). */
 .meaning {
   flex: none; font-size: 17px; line-height: 1.32; color: var(--soft); text-align: center;
-  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+  max-block-size: calc(3 * 1.32em); overflow: hidden;
 }
+.meaning.more { -webkit-mask-image: linear-gradient(to bottom, #000 64%, transparent); mask-image: linear-gradient(to bottom, #000 64%, transparent); }
 
 .controls { display: flex; justify-content: center; align-items: center; gap: 18px; flex: none; }
 .round { border-radius: 50%; inline-size: 64px; block-size: 64px; position: relative; }

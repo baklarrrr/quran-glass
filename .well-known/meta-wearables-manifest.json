@@ -1,7 +1,7 @@
 {
   "version": 1,
   "name": "Quran",
-  "description": "Follow a recitation word by word, with each word's meaning. Text, word timing and recitation from Quran.com.",
+  "description": "Follow a recitation word by word, or recite yourself and see each word gilded as you say it.",
   "appearance": {
     "theme_color": "#FFD27A",
     "icon_background": {
