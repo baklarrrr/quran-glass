@@ -1052,12 +1052,14 @@ async function voiceStart(metered) {
   drawVoice();
   if ($('tip').classList.contains('on')) showTip(document.activeElement); // the button's new name
   if (!(await phoneConnect(['qv', 's']))) {
+    if (!voice.on) return; // stopped meanwhile: nothing to report
     voice.on = false;
     voice.st = '';
     voiceReason('Can’t reach your phone', 'Can’t reach your phone');
     return;
   }
-  if (!voice.on) return; // stopped while the link library loaded
+  // Stopped while the links were opening (a quick second press): close what just opened.
+  if (!voice.on) { phoneDisconnect(); return; }
   voice.linked = voice.links.some((l) => l.connected);
   phoneSend('qStart', { s: cur.ch, a: cur.v, w: reciteAt, ...(metered ? { metered: true } : {}) }); // from the word he is on
   clearInterval(voice.aliveTimer);
