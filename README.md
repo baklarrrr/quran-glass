@@ -43,7 +43,7 @@ tajwīd. A word the phone heard but could not make out is gilded in a fainter go
 ## Privacy: Follow my voice
 
 While Follow my voice is on, the glasses and the phone exchange short messages through public MQTT
-brokers: broker.emqx.io, broker.hivemq.com and, if neither can be reached, public.cloud.shiftr.io. The
+brokers, all three at once: broker.emqx.io, broker.hivemq.com and public.cloud.shiftr.io. The
 glasses send where to follow from (again when the wearer moves), a check-in every 20 seconds and a stop;
 the phone sends its status, the loudness it hears and the positions of the words it heard. Each message
 is sealed with AES-GCM using the pairing key that Tidal Glass stored on these glasses, so the brokers

@@ -889,8 +889,17 @@ function playWord(w) {
 // the phone's report carries it (peekPhoneBattery). Pinches keep working alongside; the phone only
 // moves the gold forward.
 
-const BROKERS = ['wss://broker.emqx.io:8084/mqtt', 'wss://broker.hivemq.com:8884/mqtt'];
-const SPARE = { url: 'wss://public.cloud.shiftr.io', username: 'public', password: 'public' };
+// All three open together, shiftr.io's on port 443 included: it used to wait 5 s as a spare, but on
+// 2026-10-25 EMQX and HiveMQ could not be reached from home at all, so every start waited on it.
+const BROKERS = [
+  { url: 'wss://broker.emqx.io:8084/mqtt' },
+  { url: 'wss://broker.hivemq.com:8884/mqtt' },
+  { url: 'wss://public.cloud.shiftr.io', username: 'public', password: 'public' },
+];
+// A broker that connects late (or again) is also handed what went out in the last few seconds, so a
+// start that went only to a broker without the phone still arrives (the phone ignores repeats). Stops
+// sent without waiting (keep false) are never handed on: a late stop could end a newer start.
+const RESEND_WINDOW = 10000;
 // How long the phone may say nothing before the glasses stop asking. It answers a start at once and
 // sends its loudness four times a second while listening; getting ready takes longer, and a model
 // download reports each percent (minutes apart on a slow connection).
@@ -914,7 +923,7 @@ const voice = {
   report: '',            // the phone's last sealed report (battery), as the brokers keep it
   toast: '',             // the message last shown for a reason, so it can go with it
   unclear: new Set(),    // `${ayah}:${word}` the phone heard but could not make out
-  links: [], subs: [], key: null, topic: '', outbox: [], recent: [], moving: false, spareTimer: 0, peekTimer: 0,
+  links: [], subs: [], key: null, topic: '', outbox: [], sent: [], recent: [], moving: false, peekTimer: 0,
   aliveTimer: 0,         // tells the phone every 20 s that the glasses are still here (else it stops by itself)
   quietTimer: 0,         // gives up when the phone stays silent (VOICE_QUIET)
 };
@@ -989,7 +998,7 @@ async function phoneConnect(subs) {
   if (!(await phoneKeyReady()) || !(await loadMqtt())) return false;
   voice.subs = subs;
   const id = bytesB64url(crypto.getRandomValues(new Uint8Array(6))).replace(/[-_]/g, 'x');
-  const add = (url, extra = {}) => {
+  const add = ({ url, ...extra }) => {
     const client = mqtt.connect(url, {
       clientId: `qgg-${id}-${voice.links.length}`, clean: true, keepalive: 45, protocolVersion: 4,
       reconnectPeriod: 1500, connectTimeout: 8000, ...extra,
@@ -997,35 +1006,38 @@ async function phoneConnect(subs) {
     client.on('connect', () => {
       voice.linked = true;
       client.subscribe(voice.subs.map((x) => `bkr/${voice.topic}/${x}`), { qos: 1 });
+      const now = Date.now();
+      voice.sent = voice.sent.filter((o) => now - o.at < RESEND_WINDOW);
+      for (const o of voice.sent) client.publish(`bkr/${voice.topic}/c`, o.body, { qos: 1 });
       phoneFlush();
     });
     client.on('message', (t, payload) => phoneMessage(t.slice(t.lastIndexOf('/') + 1), new TextDecoder().decode(payload)));
     client.on('error', () => { /* mqtt.js reconnects by itself */ });
     voice.links.push(client);
   };
-  for (const url of BROKERS) add(url);
-  // A network that lets only web traffic through: the spare on port 443 joins after 5 s.
-  voice.spareTimer = setTimeout(() => {
-    if (voice.links.length && !voice.links.some((l) => l.connected)) add(SPARE.url, { username: SPARE.username, password: SPARE.password });
-  }, 5000);
+  for (const b of BROKERS) add(b);
   return true;
 }
 
 function phoneDisconnect() {
-  clearTimeout(voice.spareTimer);
   clearTimeout(voice.peekTimer);
   const old = voice.links;
   voice.links = [];
   voice.subs = [];
+  voice.sent = [];
   for (const l of old) { try { l.end(false); } catch (e) { /* already closed */ } }
 }
 
 function phoneFlush() {
   const live = voice.links.filter((l) => l.connected);
   if (!live.length) return;
-  const due = voice.outbox.filter((o) => Date.now() - o.at < 30000);
+  const now = Date.now();
+  const due = voice.outbox.filter((o) => now - o.at < 30000);
   voice.outbox = [];
-  for (const o of due) for (const l of live) l.publish(`bkr/${voice.topic}/c`, o.body, { qos: 1 });
+  for (const o of due) {
+    for (const l of live) l.publish(`bkr/${voice.topic}/c`, o.body, { qos: 1 });
+    voice.sent.push({ body: o.body, at: now });
+  }
 }
 
 // Sends a sealed command. One that cannot go out yet waits up to 30 s for a link, unless `keep` is
@@ -1038,6 +1050,10 @@ async function phoneSend(c, extra = {}, keep = true) {
   const live = voice.links.filter((l) => l.connected);
   if (!live.length) { if (keep) voice.outbox.push({ body, at: Date.now() }); return; }
   for (const l of live) l.publish(`bkr/${voice.topic}/c`, body, { qos: 1 });
+  if (keep) {
+    voice.sent.push({ body, at: Date.now() });
+    if (voice.sent.length > 20) voice.sent.shift();
+  }
 }
 
 async function phoneMessage(sub, text) {
