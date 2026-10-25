@@ -336,6 +336,8 @@ function render(next) {
   const sc = view.screen;
   if (sc !== 'options') { stopPreview(true); disarmReset(); }
   if (sc !== 'reader') stopEffects();
+  // Listening belongs to the reader; Options on top keeps it (the reader is still underneath).
+  if (sc !== 'reader' && sc !== 'options') voiceStop();
   clearTips();
   for (const id of ['home', 'list', 'reader', 'progress', 'options']) $(id).hidden = id !== sc;
   if (sc === 'home') renderHome();
@@ -443,6 +445,10 @@ async function renderReader() {
 async function moveTo(ch, v, keepPlaying, at = 0) {
   const surahChanged = !cur || cur.ch !== ch;
   cur = { ch, v };
+  if (surahChanged) voice.unclear.clear();
+  // The wearer moved by hand while the phone listens: it follows (a move the phone itself made is not
+  // sent back to it).
+  if (voice.on && !voice.moving) phoneSend(surahChanged ? 'qStart' : 'qJump', surahChanged ? { s: ch, a: v } : { a: v });
   reciteAt = Math.max(0, at);
   hintStep = 0;
   ayahDone = false;
@@ -495,12 +501,15 @@ function drawTop() {
   $('where').textContent = c ? `${c.id} ${c.en} · ${cur.v} of ${c.n}` : '';
   const verse = currentVerse();
   if (reciting()) {
-    $('whoText').textContent = verse ? `${reciteAt} of ${verse.words.length} words${settings.memorise ? ' · memorise' : ''}` : '';
+    const heard = voiceLine();
+    $('whoText').textContent = verse
+      ? `${heard ? heard + ' · ' : ''}${reciteAt} of ${verse.words.length} words${settings.memorise ? ' · memorise' : ''}`
+      : heard;
   } else {
     const extra = (settings.speed !== 1 ? ` · ${settings.speed}×` : '') + (settings.repeat !== 1 ? ` · ↻${settings.repeat === 0 ? '∞' : settings.repeat}` : '');
     $('whoText').textContent = reciter().short + extra;
   }
-  $('liveDot').classList.toggle('live', playing && !reciting());
+  $('liveDot').classList.toggle('live', (playing && !reciting()) || (voice.on && voice.st === 'listening'));
   shown($('playIcon'), !playing);
   shown($('pauseIcon'), playing);
   $('play').setAttribute('aria-label', playing ? 'Pause' : 'Play');
@@ -659,7 +668,7 @@ function paintRecite() {
   const up = upcoming();
   for (let i = 0; i < spans.length; i++) {
     let cls = up;
-    if (i < reciteAt) cls = 'w said';
+    if (i < reciteAt) cls = voice.unclear.has(`${cur.v}:${verse.words[i].p}`) ? 'w said unclear' : 'w said';
     else if (i === reciteAt) {
       if (settings.memorise && hintStep >= 2) cls = 'w hinted next';
       else if (settings.memorise && hintStep === 1) cls = 'w veiled next lettered';
@@ -712,7 +721,8 @@ function finishAyah() {
     note('recited');
     sparks($('endMark'));
   }
-  flashTip('Ayah complete · pinch for the next ayah');
+  // Listening, the reader moves on by itself as the next ayah is heard; the sparks say it is complete.
+  if (!voice.on) flashTip('Ayah complete · pinch for the next ayah');
 }
 
 function nextReciteAyah() {
@@ -745,6 +755,302 @@ function playWord(w) {
   if (!w.au) { showToast('No audio for this word'); return; }
   wordAudio.src = WORD_AUDIO + w.au;
   wordAudio.play().catch(() => showToast('The word could not play'));
+}
+
+// ---- follow my voice: the phone listens --------------------------------------------------------
+// Web apps cannot use the glasses' microphones; the phone app (Tidal Glass) can. When asked, it
+// listens through them, follows the recitation with an on-device Quran model and says which words it
+// heard, and they turn gold here as if pinched. The link is the phone's own: Tidal Glass keeps its
+// pairing on these glasses for this same site, and the messages travel sealed over the same brokers,
+// opened only while listening. Pinches keep working alongside; the phone only moves the gold forward.
+
+const BROKERS = ['wss://broker.emqx.io:8084/mqtt', 'wss://broker.hivemq.com:8884/mqtt'];
+const SPARE = { url: 'wss://public.cloud.shiftr.io', username: 'public', password: 'public' };
+const VOICE_WHY = {
+  'mic-permission': 'Allow the microphone for Tidal Glass on your phone, then try again',
+  'mic-background': 'Open Tidal Glass on your phone once, then try again',
+  text: 'Your phone could not load this surah',
+  model: 'The voice model did not load on your phone',
+};
+const voice = {
+  on: false, st: '', why: '', mic: '', pct: 0, mb: 0, askedAt: 0,
+  unclear: new Set(),  // `${ayah}:${word}` the phone heard but could not make out
+  links: [], subs: [], key: null, topic: '', outbox: [], recent: [], moving: false, spareTimer: 0, peekTimer: 0,
+};
+
+function phonePairing() {
+  try {
+    const p = JSON.parse(localStorage.getItem('tg.pair') || 'null');
+    return p && p.t && p.k ? p : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+function b64urlBytes(s) {
+  s = s.replace(/-/g, '+').replace(/_/g, '/');
+  while (s.length % 4) s += '=';
+  return Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
+}
+
+function bytesB64url(bytes) {
+  let s = '';
+  for (const b of bytes) s += String.fromCharCode(b);
+  return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+async function phoneKeyReady() {
+  const pair = phonePairing();
+  if (!pair || !window.crypto || !crypto.subtle) return false;
+  if (!voice.key || voice.topic !== pair.t) {
+    voice.key = await crypto.subtle.importKey('raw', b64urlBytes(pair.k), 'AES-GCM', false, ['encrypt', 'decrypt']);
+    voice.topic = pair.t;
+  }
+  return true;
+}
+
+async function sealForPhone(obj) {
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, voice.key, new TextEncoder().encode(JSON.stringify(obj))));
+  const out = new Uint8Array(12 + ct.length);
+  out.set(iv, 0);
+  out.set(ct, 12);
+  return bytesB64url(out);
+}
+
+async function openFromPhone(text) {
+  const buf = b64urlBytes(text.trim());
+  const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: buf.slice(0, 12) }, voice.key, buf.slice(12));
+  return JSON.parse(new TextDecoder().decode(plain));
+}
+
+// The link library is only fetched when the phone is first needed.
+let mqttLoad = null;
+function loadMqtt() {
+  if (typeof mqtt !== 'undefined') return Promise.resolve(true);
+  if (!mqttLoad) {
+    mqttLoad = new Promise((resolve) => {
+      const s = document.createElement('script');
+      s.src = 'vendor/mqtt.min.js';
+      s.onload = () => resolve(typeof mqtt !== 'undefined');
+      s.onerror = () => { mqttLoad = null; resolve(false); };
+      document.head.appendChild(s);
+    });
+  }
+  return mqttLoad;
+}
+
+// Opens the link for the given topics (qv: voice, s: the phone's report, which carries the glasses'
+// battery). Reopens if a new topic is needed.
+async function phoneConnect(subs) {
+  if (voice.links.length && subs.every((x) => voice.subs.includes(x))) return true;
+  phoneDisconnect();
+  if (!(await phoneKeyReady()) || !(await loadMqtt())) return false;
+  voice.subs = subs;
+  const id = bytesB64url(crypto.getRandomValues(new Uint8Array(6))).replace(/[-_]/g, 'x');
+  const add = (url, extra = {}) => {
+    const client = mqtt.connect(url, {
+      clientId: `qgg-${id}-${voice.links.length}`, clean: true, keepalive: 45, protocolVersion: 4,
+      reconnectPeriod: 1500, connectTimeout: 8000, ...extra,
+    });
+    client.on('connect', () => {
+      client.subscribe(voice.subs.map((x) => `bkr/${voice.topic}/${x}`), { qos: 1 });
+      phoneFlush();
+    });
+    client.on('message', (t, payload) => phoneMessage(t.slice(t.lastIndexOf('/') + 1), new TextDecoder().decode(payload)));
+    client.on('error', () => { /* mqtt.js reconnects by itself */ });
+    voice.links.push(client);
+  };
+  for (const url of BROKERS) add(url);
+  // A network that lets only web traffic through: the spare on port 443 joins after 5 s.
+  voice.spareTimer = setTimeout(() => {
+    if (voice.links.length && !voice.links.some((l) => l.connected)) add(SPARE.url, { username: SPARE.username, password: SPARE.password });
+  }, 5000);
+  return true;
+}
+
+function phoneDisconnect() {
+  clearTimeout(voice.spareTimer);
+  clearTimeout(voice.peekTimer);
+  const old = voice.links;
+  voice.links = [];
+  voice.subs = [];
+  for (const l of old) { try { l.end(false); } catch (e) { /* already closed */ } }
+}
+
+function phoneFlush() {
+  const live = voice.links.filter((l) => l.connected);
+  if (!live.length) return;
+  const due = voice.outbox.filter((o) => Date.now() - o.at < 30000);
+  voice.outbox = [];
+  for (const o of due) for (const l of live) l.publish(`bkr/${voice.topic}/c`, o.body, { qos: 1 });
+}
+
+async function phoneSend(c, extra = {}) {
+  if (!voice.key) return;
+  const body = await sealForPhone({ c, ts: Date.now(), ...extra });
+  const live = voice.links.filter((l) => l.connected);
+  if (!live.length) { voice.outbox.push({ body, at: Date.now() }); return; }
+  for (const l of live) l.publish(`bkr/${voice.topic}/c`, body, { qos: 1 });
+}
+
+async function phoneMessage(sub, text) {
+  if (voice.recent.includes(text)) return; // the same message from the other broker
+  voice.recent.push(text);
+  if (voice.recent.length > 16) voice.recent.shift();
+  let m;
+  try { m = await openFromPhone(text); } catch (e) { return; }
+  if (sub === 's') {
+    if (Number.isFinite(m.gb)) drawBattery(m.gb / 100, !!m.gc);
+    if (!voice.on && voice.subs.length === 1) phoneDisconnect(); // only came for the battery
+    return;
+  }
+  if (m.t !== 'qv' || !voice.on || !cur || m.s !== cur.ch) return;
+  if (m.st) voiceStatus(m);
+  if (m.l != null) voiceLevel(m.l);
+  if (!reciting() || view.screen !== 'reader') return;
+  if (m.ka && m.m) voiceMarks(m.ka, m.m);
+  if (m.pa) voiceReached(m.pa);
+  if (m.ca) voiceSaying(m.ca);
+}
+
+async function voiceStart(metered) {
+  if (!cur) return;
+  if (!phonePairing()) { showToast('Open Tidal Glass once on these glasses to link your phone'); return; }
+  voice.on = true;
+  voice.st = 'asking';
+  voice.why = '';
+  voice.askedAt = Date.now();
+  drawVoice();
+  if (!(await phoneConnect(['qv', 's']))) {
+    voice.on = false;
+    showToast('Can’t reach your phone');
+    drawVoice();
+    return;
+  }
+  phoneSend('qStart', { s: cur.ch, a: cur.v, ...(metered ? { metered: true } : {}) });
+  setTimeout(drawTop, 8100); // "not answering" shows by itself
+}
+
+function voiceStop() {
+  if (!voice.on) return;
+  phoneSend('qStop');
+  voiceEnd();
+}
+
+// Listening is over (asked, an error, or quiet): the gold stays, the link closes.
+function voiceEnd() {
+  voice.on = false;
+  voice.st = '';
+  setTimeout(() => { if (!voice.on) phoneDisconnect(); }, 1500); // lets a last qStop go out
+  drawVoice();
+}
+
+function voiceStatus(m) {
+  voice.st = m.st;
+  voice.why = m.why || '';
+  if (m.mic) voice.mic = m.mic;
+  if (m.pct != null) voice.pct = m.pct;
+  if (m.mb) voice.mb = m.mb;
+  if (m.st === 'listening') showToast(voice.mic === 'glasses' ? 'Listening through your glasses' : 'Listening through your phone');
+  else if (m.st === 'needs-wifi') showToast(`Your phone needs Wi-Fi once for the voice model (${voice.mb} MB). Pinch Listen to use mobile data.`);
+  else if (m.st === 'error') { showToast(VOICE_WHY[voice.why] || 'Listening stopped on your phone'); voiceEnd(); }
+  else if (m.st === 'stopped') { if (voice.why === 'quiet') showToast('Stopped listening after two quiet minutes'); voiceEnd(); }
+  drawVoice();
+}
+
+// The live dot follows the loudness the phone hears, so it is clear the voice is reaching it.
+function voiceLevel(level) {
+  const dot = $('liveDot');
+  dot.style.opacity = voice.on ? String(0.35 + 0.65 * Math.min(1, level / 40)) : '';
+}
+
+function voiceLine() {
+  if (!voice.on) return '';
+  if (voice.st === 'asking') return Date.now() - voice.askedAt > 8000 ? 'Your phone isn’t answering' : 'Asking your phone…';
+  if (voice.st === 'loading') return 'Getting ready…';
+  if (voice.st === 'model') return `Voice model ${voice.pct}%`;
+  if (voice.st === 'needs-wifi') return 'Needs Wi-Fi once';
+  if (voice.st === 'listening') return 'Listening';
+  return '';
+}
+
+function drawVoice() {
+  const b = $('voice');
+  b.classList.toggle('on', voice.on);
+  b.setAttribute('aria-pressed', voice.on ? 'true' : 'false');
+  b.setAttribute('aria-label', voice.on ? 'Stop listening' : 'Follow my voice');
+  if (!voice.on) $('liveDot').style.opacity = '';
+  drawTop();
+  refreshTip();
+}
+
+// The phone reached past word p of ayah a (the last word it heard).
+function voiceReached([a, p]) {
+  const verse = currentVerse();
+  if (!verse || voice.moving) return;
+  if (a !== cur.v) {
+    // The wearer went on to the next ayah (or back to repeat one): this one is finished as far as it
+    // went, and the reader moves with them.
+    if (a > cur.v && reciteAt < verse.words.length) reciteTo(verse.words.length);
+    const list = verses.get(cur.ch);
+    const there = list && list[a];
+    const at = there ? there.words.findIndex((w) => w.p === p) + 1 : 0;
+    voice.moving = true;
+    moveTo(cur.ch, a, false, at).finally(() => { voice.moving = false; });
+    return;
+  }
+  const i = verse.words.findIndex((w) => w.p === p);
+  if (i + 1 > reciteAt) reciteTo(i + 1); // forward only: going back stays with the wearer's swipes
+}
+
+// The word being said right now, not yet finished: it glows as the brightest.
+function voiceSaying([a, p]) {
+  if (a !== cur.v || !spans.length) return;
+  const verse = currentVerse();
+  const i = verse ? verse.words.findIndex((w) => w.p === p) : -1;
+  if (i === reciteAt && spans[i]) setCls(i, 'w now');
+}
+
+// Words the phone heard but could not make out are gilded more softly.
+function voiceMarks([a, p], run) {
+  const list = verses.get(cur.ch);
+  let ayah = a;
+  let k = list && list[a] ? list[a].words.findIndex((w) => w.p === p) : -1;
+  if (k < 0) return;
+  for (const c of run) {
+    const v = list[ayah];
+    if (!v) break;
+    const key = `${ayah}:${v.words[k].p}`;
+    if (c === 'u') voice.unclear.add(key); else voice.unclear.delete(key);
+    if (++k >= v.words.length) { ayah++; k = 0; }
+  }
+  if (a <= cur.v) paintRecite();
+}
+
+// Gilds up to n words of this ayah at once, as pinches would.
+function reciteTo(n) {
+  const verse = currentVerse();
+  if (!verse) return;
+  const from = reciteAt;
+  reciteAt = Math.min(n, verse.words.length);
+  if (reciteAt === from) return;
+  hintStep = 0;
+  note('word', reciteAt - from);
+  paintRecite();
+  trail(spans[reciteAt - 1], spans[reciteAt]);
+  showGloss(verse.words[reciteAt - 1]);
+  if (reciteAt === verse.words.length) finishAyah();
+  savePos();
+  drawTop();
+  keepInView();
+}
+
+// The glasses' battery as the phone reports it (5% steps), for when this browser does not know it.
+async function peekPhoneBattery() {
+  if (voice.on || voice.links.length || !phonePairing()) return;
+  if (!(await phoneConnect(['s']))) return;
+  voice.peekTimer = setTimeout(() => { if (!voice.on && voice.subs.length === 1) phoneDisconnect(); }, 8000);
 }
 
 // ---- look: Arabic font and effects ---------------------------------------------------------------
@@ -892,6 +1198,8 @@ function applyMode() {
   const r = reciting();
   $('play').hidden = r;
   $('hint').hidden = !r;
+  $('voice').hidden = !r;
+  if (!r) voiceStop();
   $('textbox').tabIndex = r ? 0 : -1;
   shown($('modeListen'), !r);
   shown($('modeRecite'), r);
@@ -1050,6 +1358,8 @@ const TIPS = {
   prevAyah: () => 'Previous ayah',
   play: () => (playing ? 'Pause' : 'Play the recitation'),
   hint: () => (settings.memorise ? 'Hint: first letter, then the word, then hear it' : 'Hint: the next word’s reading, then hear it'),
+  voice: () => (!voice.on ? 'Follow my voice: your phone listens and gilds each word'
+    : voice.st === 'needs-wifi' ? 'Use mobile data for the voice model' : 'Stop listening'),
   nextAyah: () => 'Next ayah',
   mode: () => (reciting() ? 'Reciting yourself · pinch to follow the reciter' : 'Following the reciter · pinch to recite yourself'),
   readerOptions: () => 'Reciter, font, effects and more',
@@ -1486,30 +1796,40 @@ function prefetchPreviews() {
 // that exact answer hides the chip (a truly full battery on its charger looks the same, and loses
 // nothing by hiding).
 
+// When the browser does not know, the phone's report (the glasses' battery as Meta's toolkit gives it
+// to Tidal Glass, in 5% steps) fills in. On the glasses both agreed (47% each, 2026-10-25 07:53).
+let batteryKnown = false;
+
 function watchBattery() {
-  if (!navigator.getBattery) return;
+  if (!navigator.getBattery) { peekPhoneBattery(); return; }
   navigator.getBattery().then((b) => {
     const draw = () => {
       const unknown = b.level === 1 && b.charging && b.chargingTime === 0 && b.dischargingTime === Infinity;
+      batteryKnown = !unknown;
       if (unknown) {
         for (const el of document.querySelectorAll('[data-batt]')) el.hidden = true;
+        peekPhoneBattery();
         return;
       }
-      const pct = Math.round(b.level * 100);
-      const fill = Math.max(1.5, 13.5 * b.level);
-      const bolt = b.charging ? '<path d="M10.6 1.6 6.4 6.6h2.9l-1.1 3.8 4.3-5.1H9.6z" fill="#000" stroke="#000" stroke-width="2.4" stroke-linejoin="round"/><path d="M10.6 1.6 6.4 6.6h2.9l-1.1 3.8 4.3-5.1H9.6z"/>' : '';
-      for (const el of document.querySelectorAll('[data-batt]')) {
-        el.innerHTML = `<svg viewBox="0 0 20 12" aria-hidden="true"><rect x="0.75" y="0.75" width="16.5" height="10.5" rx="2.4" fill="none" stroke="currentColor" stroke-width="1.5"/><rect x="18.2" y="3.9" width="1.6" height="4.2" rx="0.8"/><rect x="2.25" y="2.25" width="${fill.toFixed(1)}" height="7.5" rx="1.1" opacity="${b.charging ? 0.55 : 1}"/>${bolt}</svg><span></span>`;
-        el.lastChild.textContent = `${pct}%`;
-        el.classList.toggle('charging', b.charging);
-        el.classList.toggle('low', !b.charging && pct < 15);
-        el.setAttribute('aria-label', `Glasses battery ${pct}%${b.charging ? ', charging' : ''}`);
-        el.hidden = false;
-      }
+      drawBattery(b.level, b.charging);
     };
     draw();
     for (const ev of ['levelchange', 'chargingchange', 'chargingtimechange', 'dischargingtimechange']) b.addEventListener(ev, draw);
-  }).catch(() => {});
+  }).catch(() => peekPhoneBattery());
+}
+
+function drawBattery(level, charging) {
+  const pct = Math.round(level * 100);
+  const fill = Math.max(1.5, 13.5 * level);
+  const bolt = charging ? '<path d="M10.6 1.6 6.4 6.6h2.9l-1.1 3.8 4.3-5.1H9.6z" fill="#000" stroke="#000" stroke-width="2.4" stroke-linejoin="round"/><path d="M10.6 1.6 6.4 6.6h2.9l-1.1 3.8 4.3-5.1H9.6z"/>' : '';
+  for (const el of document.querySelectorAll('[data-batt]')) {
+    el.innerHTML = `<svg viewBox="0 0 20 12" aria-hidden="true"><rect x="0.75" y="0.75" width="16.5" height="10.5" rx="2.4" fill="none" stroke="currentColor" stroke-width="1.5"/><rect x="18.2" y="3.9" width="1.6" height="4.2" rx="0.8"/><rect x="2.25" y="2.25" width="${fill.toFixed(1)}" height="7.5" rx="1.1" opacity="${charging ? 0.55 : 1}"/>${bolt}</svg><span></span>`;
+    el.lastChild.textContent = `${pct}%`;
+    el.classList.toggle('charging', charging);
+    el.classList.toggle('low', !charging && pct < 15);
+    el.setAttribute('aria-label', `Glasses battery ${pct}%${charging ? ', charging' : ''}`);
+    el.hidden = false;
+  }
 }
 
 // ---- wiring -----------------------------------------------------------------------------------
@@ -1522,6 +1842,11 @@ function wire() {
   $('readerOptions').addEventListener('click', () => openFrom('readerOptions', { screen: 'options' }));
   $('play').addEventListener('click', () => (playing ? pause() : play()));
   $('hint').addEventListener('click', hint);
+  $('voice').addEventListener('click', () => {
+    if (!voice.on) voiceStart(false);
+    else if (voice.st === 'needs-wifi') voiceStart(true);
+    else voiceStop();
+  });
   $('prevAyah').addEventListener('click', () => stepAyah(-1));
   $('nextAyah').addEventListener('click', () => stepAyah(1));
   $('mode').addEventListener('click', () => setMode(reciting() ? 'listen' : 'recite'));
@@ -1591,9 +1916,10 @@ function wire() {
     if (e.key === 'Escape' && view.screen !== 'home') { e.preventDefault(); history.back(); }
   });
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') { if (playing) loop(); return; }
+    if (document.visibilityState === 'visible') { if (playing) loop(); if (!batteryKnown) peekPhoneBattery(); return; }
     stopPreview();
     stopEffects();
+    voiceStop(); // the phone stops listening and the microphones go back to music mode
   });
   window.addEventListener('popstate', onPopState);
 }
