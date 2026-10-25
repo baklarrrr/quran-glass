@@ -305,7 +305,9 @@ button:focus .ar-name { background: var(--gilt); -webkit-background-clip: text; 
 .toast {
   position: absolute; inset-inline: 0; inset-block-start: 14px; margin-inline: auto; inline-size: max-content; max-inline-size: 84%;
   padding: 8px 18px; border-radius: 999px; border: 1.5px solid rgba(255, 210, 122, 0.6);
-  color: var(--ink); font-size: 17px; background: rgba(255, 210, 122, 0.14);
+  /* The same faint gold as before, but opaque (14% gold over black), so the rule and the text's frame
+     under a two-line message never run through its words. */
+  color: var(--ink); font-size: 17px; background: rgb(36, 29, 17);
 }
 
 @media (prefers-reduced-motion: no-preference) {
