@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "name": "Quran",
+  "description": "Follow a recitation word by word, with each word's meaning. Text, word timing and recitation from Quran.com.",
+  "appearance": {
+    "theme_color": "#FFD27A",
+    "icon_background": {
+      "colors": ["#6E5317", "#171003"],
+      "stops": [0.0, 1.0],
+      "inner_glow_color": "#FFE7B0"
+    },
+    "icon": {
+      "src": "../icon-mono.svg",
+      "type": "monochrome"
+    }
+  }
+}

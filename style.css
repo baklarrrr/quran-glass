@@ -1,0 +1,162 @@
+/* Quran on Meta Ray-Ban Display.
+   The display is additive: black adds no light and reads as see-through, so the page stays black and
+   only the words, a few hairlines and the focus glow are lit. The word being recited is the brightest
+   thing on screen; words already recited step back. Nothing moves on its own except that highlight. */
+:root {
+  --ink: #ffffff;
+  --soft: #d9dde3;
+  --dim: #9aa3ad;
+  --hair: rgba(255, 255, 255, 0.32);
+  --gold: #ffd27a;
+  --gold-soft: rgba(255, 210, 122, 0.18);
+  --glow: 0 0 0 3px var(--gold), 0 0 16px rgba(255, 210, 122, 0.5);
+  --arabic: "Amiri Quran", "Noto Naskh Arabic", "Scheherazade New", serif;
+}
+
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+
+html, body {
+  margin: 0;
+  inline-size: 100%;
+  block-size: 100%;
+  background: #000;
+  color: var(--ink);
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+main { block-size: 100%; position: relative; }
+
+.screen {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  block-size: 100%;
+  padding: 22px 30px 18px;
+  overflow: hidden;
+}
+
+svg { fill: currentColor; }
+p { margin: 0; }
+h1, h2 { margin: 0; font-weight: 750; letter-spacing: -0.01em; }
+h1 { font-size: 32px; }
+h2 { font-size: 27px; }
+h2:focus { outline: none; }
+.dim { color: var(--dim); font-size: 15px; }
+.head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex: none; }
+
+button {
+  display: inline-grid; place-items: center;
+  border: 2px solid var(--hair); background: transparent; color: var(--ink);
+  font: inherit; cursor: pointer; padding: 0; outline: none;
+  -webkit-tap-highlight-color: transparent;
+}
+button:focus { border-color: var(--gold); background: var(--gold-soft); box-shadow: var(--glow); }
+button:active { transform: scale(0.95); }
+button[disabled] { opacity: 0.35; }
+
+/* ---- home ---------------------------------------------------------------------------------- */
+.card {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 4px;
+  inline-size: 100%; padding: 14px 20px 16px; border-radius: 20px; text-align: start; flex: none;
+}
+.eyebrow { font-size: 14px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--gold); }
+.cardline { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; inline-size: 100%; }
+.big { font-size: 30px; font-weight: 750; }
+.ar-name { font-family: var(--arabic); font-size: 34px; line-height: 1.2; color: var(--soft); }
+.picks { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; flex: none; }
+.pick { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 6px 6px 10px; border-radius: 16px; min-block-size: 92px; }
+.pick .ar-name { font-size: 28px; line-height: 1.75; }
+.pick .en { font-size: 15px; line-height: 1.2; color: var(--soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-inline-size: 100%; }
+.hint { font-size: 18px; line-height: 1.4; color: var(--soft); margin: auto 0; }
+.row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; flex: none; margin-top: auto; }
+.pill { block-size: 56px; border-radius: 16px; font-size: 19px; }
+
+/* ---- surah list ------------------------------------------------------------------------------ */
+.surahs { list-style: none; margin: 0; padding: 3px 4px 6px; display: flex; flex-direction: column; gap: 8px; min-block-size: 0; overflow: auto; scrollbar-width: none; }
+.surahs::-webkit-scrollbar { display: none; }
+.surahs button {
+  inline-size: 100%; display: grid; grid-template-columns: 44px minmax(0, 1fr) auto; align-items: center; justify-items: start; gap: 14px;
+  padding: 6px 16px; border-radius: 16px; border-width: 1.5px; text-align: start; min-block-size: 64px;
+}
+.surahs button .num { justify-self: center; }
+.surahs button .ar-name { justify-self: end; line-height: 1.6; }
+.num { font-size: 17px; color: var(--dim); font-variant-numeric: tabular-nums; text-align: center; }
+.names { min-inline-size: 0; display: flex; flex-direction: column; }
+.names .en { font-size: 20px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.names .sub { font-size: 14px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.surahs .ar-name { font-size: 26px; }
+.surahs button:focus .num { color: var(--gold); }
+
+/* ---- reader --------------------------------------------------------------------------------- */
+.reader { gap: 10px; padding-block-end: 12px; }
+.topline { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 15px; color: var(--dim); flex: none; min-block-size: 20px; }
+.where { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.who { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
+.dot { inline-size: 8px; block-size: 8px; border-radius: 50%; background: var(--dim); }
+.dot.live { background: var(--gold); box-shadow: 0 0 8px var(--gold); }
+
+.textbox { flex: 1; min-block-size: 0; overflow: auto; scrollbar-width: none; display: flex; }
+.textbox::-webkit-scrollbar { display: none; }
+.ayah {
+  margin: auto 0; inline-size: 100%;
+  font-family: var(--arabic); font-size: 44px; line-height: 1.95; text-align: center;
+  word-spacing: 0.06em; color: var(--ink);
+}
+.ayah .w { transition: color 120ms ease, text-shadow 120ms ease; }
+.ayah .w.said { color: rgba(255, 255, 255, 0.5); }
+.ayah .w.now { color: var(--gold); text-shadow: 0 0 14px rgba(255, 210, 122, 0.55); }
+.ayah .w.veiled { color: transparent; text-shadow: none; border-block-end: 2px dotted rgba(255, 255, 255, 0.35); }
+.ayah .end { color: var(--dim); font-size: 0.82em; }
+.ayah.loading { font-family: inherit; font-size: 20px; color: var(--dim); }
+
+.gloss { flex: none; min-block-size: 26px; text-align: center; font-size: 20px; color: var(--gold); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.gloss .tr { color: var(--soft); font-style: italic; }
+.meaning {
+  flex: none; font-size: 17px; line-height: 1.32; color: var(--soft); text-align: center;
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+}
+
+.controls { display: flex; justify-content: center; align-items: center; gap: 18px; flex: none; }
+.round { border-radius: 50%; inline-size: 64px; block-size: 64px; position: relative; }
+.round svg { inline-size: 28px; block-size: 28px; }
+.round.primary { inline-size: 80px; block-size: 80px; border: 3px solid var(--ink); }
+.round.primary svg { inline-size: 38px; block-size: 38px; }
+.badge {
+  position: absolute; inset-block-start: -6px; inset-inline-end: -8px; min-inline-size: 26px; block-size: 24px; padding: 0 6px;
+  border-radius: 12px; background: #000; border: 1.5px solid var(--gold); color: var(--gold); font-size: 13px; font-weight: 700;
+  display: grid; place-items: center;
+}
+.tip { flex: none; min-block-size: 22px; text-align: center; font-size: 17px; font-weight: 650; color: var(--gold); opacity: 0; margin-block-start: -4px; }
+.tip.on { opacity: 1; }
+
+/* ---- options -------------------------------------------------------------------------------- */
+.optrows { display: flex; flex-direction: column; gap: 8px; min-block-size: 0; overflow: auto; scrollbar-width: none; padding: 3px 4px 6px; }
+.optrows::-webkit-scrollbar { display: none; }
+.orow {
+  flex: none; display: grid; grid-template-columns: 150px minmax(0, 1fr); align-items: center; gap: 12px;
+  min-block-size: 54px; padding: 0 16px; border: 1.5px solid var(--hair); border-radius: 16px; outline: none;
+}
+.orow .lab { font-size: 19px; }
+.orow .val { display: flex; justify-content: space-between; align-items: center; font-size: 19px; font-weight: 700; min-inline-size: 0; }
+.orow .val .v { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0 6px; }
+.orow .arrow { color: var(--dim); font-size: 26px; line-height: 1; }
+.orow:focus { border-color: var(--gold); background: var(--gold-soft); box-shadow: var(--glow); }
+.orow:focus .arrow { color: var(--gold); }
+.credit { flex: none; margin-top: auto; font-size: 13px; line-height: 1.35; color: var(--dim); }
+
+/* ---- toast ---------------------------------------------------------------------------------- */
+.toast {
+  position: absolute; inset-inline: 0; inset-block-start: 14px; margin-inline: auto; inline-size: max-content; max-inline-size: 84%;
+  padding: 8px 18px; border-radius: 999px; border: 1.5px solid rgba(255, 210, 122, 0.6);
+  color: var(--ink); font-size: 17px; background: rgba(255, 210, 122, 0.14);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  button, .orow { transition: box-shadow 140ms ease, background-color 140ms ease, border-color 140ms ease, transform 90ms ease; }
+  .tip { transition: opacity 180ms ease; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ayah .w { transition: none; }
+}
