@@ -3,7 +3,7 @@
 // Keeps the app shell on the glasses so it opens quickly on a slow link. Network first, so an update
 // shows on the next launch. Only this site's own files are handled: Quran.com data, the recitation
 // audio and the font always come from their own servers.
-const CACHE = 'quran-glass-v2';
+const CACHE = 'quran-glass-v3';
 const SHELL = ['./', 'index.html', 'style.css', 'app.js', 'icon.svg', 'icon-mono.svg'];
 
 self.addEventListener('install', (event) => {

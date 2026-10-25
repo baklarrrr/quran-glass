@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="application-name" content="Quran">
-  <meta name="description" content="Follow a Quran recitation word by word on Meta Ray-Ban Display, with each word's meaning. Text, word timing and recitation from Quran.com.">
+  <meta name="description" content="Follow a Quran recitation word by word on Meta Ray-Ban Display, or recite yourself and gild each word as you say it. Text, word timing, word audio and recitation from Quran.com.">
   <meta name="robots" content="noindex, nofollow">
   <meta name="theme-color" content="#000000">
   <title>Quran</title>
@@ -28,9 +28,10 @@
         <span id="resumeMeta" class="dim"></span>
       </button>
       <div id="picks" class="picks"></div>
-      <p id="homeHint" class="hint" hidden>Pick a surah, then pinch Play: each word lights up as the reciter says it, with its meaning underneath.</p>
-      <div class="row2">
+      <p id="homeHint" class="hint" hidden>Pick a surah. Follow a reciter word by word, or recite yourself and gild each word as you say it.</p>
+      <div class="row3">
         <button id="allSurahs" class="pill"><span>All surahs</span></button>
+        <button id="homeProgress" class="pill"><span>Progress</span></button>
         <button id="homeOptions" class="pill"><span>Options</span></button>
       </div>
     </section>
@@ -44,13 +45,14 @@
       <ol id="surahs" class="surahs"></ol>
     </section>
 
-    <!-- Reader: one ayah at a time, the word being recited lit. -->
+    <!-- Reader: one ayah at a time. Recited words are gilded; the word being said is brightest. -->
     <section id="reader" class="screen reader" aria-label="Recitation" hidden>
       <header class="topline">
         <span id="where" class="where"></span>
         <span id="who" class="who"><span id="liveDot" class="dot" aria-hidden="true"></span><span id="whoText"></span></span>
       </header>
-      <div id="textbox" class="textbox">
+      <div class="rule" aria-hidden="true"></div>
+      <div id="textbox" class="textbox" tabindex="-1" aria-label="Ayah text">
         <p id="ayah" class="ayah" lang="ar" dir="rtl"></p>
       </div>
       <p id="gloss" class="gloss" aria-live="off"></p>
@@ -63,18 +65,31 @@
           <svg id="playIcon" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.4v13.2a.9.9 0 0 0 1.4.8l10.2-6.6a.9.9 0 0 0 0-1.6L9.4 4.6A.9.9 0 0 0 8 5.4z"/></svg>
           <svg id="pauseIcon" viewBox="0 0 24 24" aria-hidden="true" hidden><rect x="6" y="5" width="4.2" height="14" rx="1.2"/><rect x="13.8" y="5" width="4.2" height="14" rx="1.2"/></svg>
         </button>
+        <button id="hint" class="round primary" aria-label="Hint for the next word" hidden>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.5a6.8 6.8 0 0 0-4 12.3c.6.5 1 1.2 1 2V18h6v-1.2c0-.8.4-1.5 1-2A6.8 6.8 0 0 0 12 2.5zM9.2 19.6h5.6v1a1.4 1.4 0 0 1-1.4 1.4h-2.8a1.4 1.4 0 0 1-1.4-1.4z"/></svg>
+        </button>
         <button id="nextAyah" class="round" aria-label="Next ayah">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15.8 5H18v14h-2.2zM5 5.6v12.8a.8.8 0 0 0 1.2.7l8.3-6.4a.8.8 0 0 0 0-1.4L6.2 4.9a.8.8 0 0 0-1.2.7z"/></svg>
         </button>
-        <button id="repeat" class="round" aria-label="Repeat each ayah">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7h9.2l-1.6-1.6L16 4l4 4-4 4-1.4-1.4L16.2 9H7a2 2 0 0 0-2 2v1H3v-1a4 4 0 0 1 4-4zm10 10H7.8l1.6 1.6L8 20l-4-4 4-4 1.4 1.4L7.8 15H17a2 2 0 0 0 2-2v-1h2v1a4 4 0 0 1-4 4z"/></svg>
-          <span id="repeatBadge" class="badge" hidden></span>
+        <button id="mode" class="round" aria-label="Recite it yourself">
+          <svg id="modeListen" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a8 8 0 0 0-8 8v5.5A2.5 2.5 0 0 0 6.5 19H8v-7H6v-1a6 6 0 0 1 12 0v1h-2v7h1.5a2.5 2.5 0 0 0 2.5-2.5V11a8 8 0 0 0-8-8z"/></svg>
+          <svg id="modeRecite" viewBox="0 0 24 24" aria-hidden="true" hidden><path d="M9.5 2.8a1.7 1.7 0 0 1 1.7 1.7v6.1l.9-.1V8.3a1.7 1.7 0 1 1 3.4 0v2.5l.6-.1a1.7 1.7 0 0 1 2 1.6v3.4c0 3.6-2.6 6.5-6.1 6.5h-.6a6 6 0 0 1-5-2.7l-2.6-4a1.6 1.6 0 0 1 2.4-2.1l1.6 1.4V4.5a1.7 1.7 0 0 1 1.7-1.7z"/></svg>
         </button>
         <button id="readerOptions" class="round" aria-label="Options">
           <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="2.2"/><circle cx="12" cy="12" r="2.2"/><circle cx="19" cy="12" r="2.2"/></svg>
         </button>
       </div>
       <p id="tip" class="tip" aria-hidden="true"></p>
+    </section>
+
+    <!-- Progress: what he marked and the hints he used, kept on the glasses. -->
+    <section id="progress" class="screen" aria-labelledby="progTitle" hidden>
+      <header class="head">
+        <h2 id="progTitle" tabindex="-1">Your progress</h2>
+        <span class="dim">Kept on these glasses</span>
+      </header>
+      <div id="progBody" class="progbody"></div>
+      <p class="credit">These are the words and ayahs you marked yourself and the hints you used. They do not judge your recitation or your tajwīd.</p>
     </section>
 
     <!-- Options: swipe up/down to pick, left/right to change. -->
@@ -84,12 +99,13 @@
         <span class="dim">Swipe left or right to change</span>
       </header>
       <div id="optRows" class="optrows"></div>
-      <p class="credit">Text, word timing and recitation from Quran.com. English is Saheeh International’s translation of the meaning. Word lighting follows the recorded timing; it does not check tajwīd.</p>
+      <p class="credit">Text, word timing, word audio and recitation from Quran.com. English is Saheeh International’s translation of the meaning. Gilding follows the recorded timing or your own marks; it does not check tajwīd.</p>
     </section>
 
     <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
   </main>
   <audio id="audio" preload="none"></audio>
+  <audio id="wordAudio" preload="none"></audio>
   <script src="app.js"></script>
 </body>
 </html>
