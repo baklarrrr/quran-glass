@@ -307,7 +307,7 @@ button:focus .ar-name { background: var(--gilt); -webkit-background-clip: text; 
   padding: 8px 18px; border-radius: 999px; border: 1.5px solid rgba(255, 210, 122, 0.6);
   /* The same faint gold as before, but opaque (14% gold over black), so the rule and the text's frame
      under a two-line message never run through its words. */
-  color: var(--ink); font-size: 17px; background: rgb(36, 29, 17); text-wrap: balance;
+  color: var(--ink); font-size: 17px; background: rgb(36, 29, 17); text-wrap: balance; text-align: center;
 }
 
 @media (prefers-reduced-motion: no-preference) {

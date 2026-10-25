@@ -861,9 +861,10 @@ const SPARE = { url: 'wss://public.cloud.shiftr.io', username: 'public', passwor
 // download reports each percent (minutes apart on a slow connection).
 const VOICE_QUIET = { asking: 20000, loading: 60000, model: 180000, listening: 20000 };
 // Why the phone stopped (its `why`): a short form for the top line and the whole of it for the message.
+// The app's name keeps its two words on one line of a message (a no-break space).
 const VOICE_WHY = {
-  'mic-permission': ['Microphone not allowed', 'Allow the microphone for Tidal Glass on your phone, then try again'],
-  'mic-background': ['Open Tidal Glass once', 'Open Tidal Glass on your phone once, then try again'],
+  'mic-permission': ['Microphone not allowed', 'Allow the microphone for Tidal Glass on your phone, then try again'],
+  'mic-background': ['Open Tidal Glass once', 'Open Tidal Glass on your phone once, then try again'],
   text: ['Surah didn’t load', 'Your phone could not load this surah'],
   model: ['Voice model didn’t load', 'The voice model did not load on your phone'],
 };
@@ -1041,7 +1042,7 @@ async function voiceStart(metered) {
   voice.offer = null;
   voice.note = '';
   hideToast(); // the reason for the last stop has been read: this press tries again
-  if (!phonePairing()) { voiceReason('Phone not linked', 'Open Tidal Glass once on these glasses to link your phone'); return; }
+  if (!phonePairing()) { voiceReason('Phone not linked', 'Open Tidal Glass once on these glasses to link your phone'); return; }
   voice.on = true;
   voice.st = 'asking';
   voice.why = '';
@@ -1101,7 +1102,7 @@ function voiceWatch() {
   const linked = voice.linked;
   voiceStop();
   if (answered) voiceReason('Phone stopped answering', 'Your phone stopped answering, so listening ended. Try again.');
-  else if (linked) voiceReason('Phone didn’t answer', 'Your phone didn’t answer. Open Tidal Glass on your phone, then try again.');
+  else if (linked) voiceReason('Phone didn’t answer', 'Your phone didn’t answer. Open Tidal Glass on your phone, then try again.');
   else voiceReason('Can’t reach your phone', 'These glasses can’t reach your phone. Check that they’re online, then try again.');
 }
 
