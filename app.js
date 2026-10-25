@@ -451,7 +451,7 @@ async function moveTo(ch, v, keepPlaying, at = 0) {
   hideTip($('tip')); // an "Ayah complete" from the ayah before never stays on the next one
   // The wearer moved by hand while the phone listens: it follows (a move the phone itself made is not
   // sent back to it).
-  if (voice.on && !voice.moving) phoneSend(surahChanged ? 'qStart' : 'qJump', surahChanged ? { s: ch, a: v } : { a: v });
+  if (voice.on && !voice.moving) phoneSend(surahChanged ? 'qStart' : 'qJump', surahChanged ? { s: ch, a: v, w: Math.max(0, at) } : { a: v, w: Math.max(0, at) });
   reciteAt = Math.max(0, at);
   hintStep = 0;
   ayahDone = false;
@@ -962,7 +962,7 @@ async function voiceStart(metered) {
     drawVoice();
     return;
   }
-  phoneSend('qStart', { s: cur.ch, a: cur.v, ...(metered ? { metered: true } : {}) });
+  phoneSend('qStart', { s: cur.ch, a: cur.v, w: reciteAt, ...(metered ? { metered: true } : {}) }); // from the word he is on
   setTimeout(drawTop, 8100); // "not answering" shows by itself
 }
 
