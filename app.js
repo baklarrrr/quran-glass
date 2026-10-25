@@ -230,7 +230,8 @@ function ensureTiming(rid, ch) {
       p = (known ? Promise.resolve(known) : extraReady.then(() => RECITERS.find((x) => x.id === rid))).then((r) => {
         if (!r) throw new Error('unknown-reciter');
         const c = r.custom;
-        if (c.chapters.length && !c.chapters.includes(ch)) throw new Error('not-recorded');
+        // A surah missing from its list has no word timing yet (the recording itself usually exists).
+        if (c.chapters.length && !c.chapters.includes(ch)) throw new Error('no-timing');
         return fetch(fill(c.timingsUrlTemplate, ch))
           .then((res) => { if (!res.ok) throw new Error(`HTTP ${res.status}`); return res.json(); })
           .then((data) => parseTiming(data, c.audioUrlTemplate ? fill(c.audioUrlTemplate, ch) : null));
@@ -248,18 +249,35 @@ function fill(template, ch) {
   return template.replace('{ch3}', String(ch).padStart(3, '0')).replace('{ch}', String(ch));
 }
 
-// An ayah the recording leaves out (aligned reciters mark it left_out, with no length) is passed over; a
-// recording that stops partway through the surah ends at its last timed ayah (`last`).
+// Aligned reciters: an ayah the aligner could not time is marked left_out with no length, at the start of
+// the next ayah, and the ayah before it is stretched over its words. The recording almost always has it
+// (a check of all 42 such marks on 2026-10-25 read 38 of them in the audio). So that stretch, from the end
+// of the last timed word before it to the next ayah, becomes the untimed ayah's own: it shows, unlit,
+// while it is recited, and the ayah before ends with its last word. One with no stretch at all (its words
+// fall inside a neighbour's timed word) is passed over (`pass`). Nothing here says what a recording holds;
+// where timing stops partway through a surah, `last` is the last ayah with any timing.
 function parseTiming(data, audioUrl) {
   const t = new Map();
-  let last = 0;
   for (const s of data.audio_file.timestamps || []) {
     const v = Number(String(s.verse_key).split(':')[1]);
     // Some entries are placeholders like [1]; only [word, start, end] are timings.
     const segs = (s.segments || []).filter((x) => Array.isArray(x) && x.length >= 3).sort((a, b) => a[1] - b[1]);
-    const leftOut = s.left_out === true || !(s.timestamp_to > s.timestamp_from);
-    t.set(v, { from: s.timestamp_from, to: s.timestamp_to, segs, leftOut });
-    if (!leftOut) last = Math.max(last, v);
+    const untimed = s.left_out === true || !(s.timestamp_to > s.timestamp_from) || !segs.length;
+    t.set(v, { from: s.timestamp_from, to: s.timestamp_to, segs, untimed, pass: false });
+  }
+  let last = 0;
+  for (const [v, tm] of t) {
+    if (tm.untimed && !(tm.to > tm.from)) {
+      const prev = t.get(v - 1);
+      const end = prev && prev.segs.length ? prev.segs[prev.segs.length - 1][2] : null;
+      if (end != null && end < tm.from) {
+        tm.to = tm.from;
+        tm.from = end;
+        prev.to = end;
+      }
+      tm.pass = !(tm.to > tm.from);
+    }
+    if (!tm.pass) last = Math.max(last, v);
   }
   return { url: audioUrl || data.audio_file.audio_url, t, last };
 }
@@ -489,6 +507,7 @@ async function moveTo(ch, v, keepPlaying, at = 0) {
   if (keepPlaying && playing && timing) {
     const tm = timing.t.get(v);
     if (tm) audio.currentTime = tm.from / 1000;
+    untimedNote(tm);
   }
 }
 
@@ -577,7 +596,7 @@ function drawAyahNow() {
   });
   if (verse.end) {
     // A no-break space keeps the ayah's number with its last word (it was alone on a line in 430 ayahs).
-    el.appendChild(document.createTextNode(' '));
+    el.appendChild(document.createTextNode('\u00a0'));
     const e = document.createElement('span');
     e.className = 'end';
     e.id = 'endMark';
@@ -751,20 +770,29 @@ function paintRecite() {
   syncMeaning(reciteAt / verse.words.length);
 }
 
-// The first time the phone leaves a word in fainter gold, the tip line says what that means, once.
+// The first time the phone leaves a word in fainter gold, the tip line says what that means. It counts as
+// told only once both lines have stayed their full time; if a swipe's tip replaces either, the next unclear
+// word tells it again.
+const UNCLEAR_TELL = ['Fainter gold: your phone wasn’t sure it heard that word', 'This app doesn’t judge recitation or tajwīd'];
 let unclearTold = !!load('qg.toldUnclear', false);
+let unclearTelling = false;
 let unclearTimer = 0;
 function tellUnclear() {
-  unclearTold = true;
-  save('qg.toldUnclear', true);
-  if (view.screen !== 'reader') return;
-  const first = 'Fainter gold: your phone wasn’t sure it heard that word';
-  flashIn('tip', first);
+  if (unclearTelling || view.screen !== 'reader') return;
+  unclearTelling = true;
+  const still = (text) => view.screen === 'reader' && $('tip').classList.contains('on') && $('tip').textContent === text;
+  flashIn('tip', UNCLEAR_TELL[0]);
   clearTimeout(unclearTimer);
   unclearTimer = setTimeout(() => {
-    const tip = $('tip');
-    if (view.screen === 'reader' && tip.classList.contains('on') && tip.textContent === first) flashIn('tip', 'This app doesn’t judge recitation or tajwīd', 4500);
-    else if (tip.textContent === first) hideTip(tip);
+    if (!still(UNCLEAR_TELL[0])) { unclearTelling = false; return; }
+    flashIn('tip', UNCLEAR_TELL[1]);
+    unclearTimer = setTimeout(() => {
+      unclearTelling = false;
+      if (!still(UNCLEAR_TELL[1])) return;
+      unclearTold = true;
+      save('qg.toldUnclear', true);
+      hideTip($('tip'));
+    }, 4500);
   }, 5500);
 }
 
@@ -863,8 +891,8 @@ const VOICE_QUIET = { asking: 20000, loading: 60000, model: 180000, listening: 2
 // Why the phone stopped (its `why`): a short form for the top line and the whole of it for the message.
 // The app's name keeps its two words on one line of a message (a no-break space).
 const VOICE_WHY = {
-  'mic-permission': ['Microphone not allowed', 'Allow the microphone for Tidal Glass on your phone, then try again'],
-  'mic-background': ['Open Tidal Glass once', 'Open Tidal Glass on your phone once, then try again'],
+  'mic-permission': ['Microphone not allowed', 'Allow the microphone for Tidal\u00a0Glass on your phone, then try again'],
+  'mic-background': ['Open Tidal Glass once', 'Open Tidal\u00a0Glass on your phone once, then try again'],
   text: ['Surah didn’t load', 'Your phone could not load this surah'],
   model: ['Voice model didn’t load', 'The voice model did not load on your phone'],
 };
@@ -877,6 +905,7 @@ const voice = {
   note: '',              // why listening stopped, short, on the top line until the next press
   offer: null,           // { mb }: the phone needs Wi-Fi for its model; the microphone button can use mobile data
   report: '',            // the phone's last sealed report (battery), as the brokers keep it
+  toast: '',             // the message last shown for a reason, so it can go with it
   unclear: new Set(),    // `${ayah}:${word}` the phone heard but could not make out
   links: [], subs: [], key: null, topic: '', outbox: [], recent: [], moving: false, spareTimer: 0, peekTimer: 0,
   aliveTimer: 0,         // tells the phone every 20 s that the glasses are still here (else it stops by itself)
@@ -1042,7 +1071,7 @@ async function voiceStart(metered) {
   voice.offer = null;
   voice.note = '';
   hideToast(); // the reason for the last stop has been read: this press tries again
-  if (!phonePairing()) { voiceReason('Phone not linked', 'Open Tidal Glass once on these glasses to link your phone'); return; }
+  if (!phonePairing()) { voiceReason('Phone not linked', 'Open Tidal\u00a0Glass once on these glasses to link your phone'); return; }
   voice.on = true;
   voice.st = 'asking';
   voice.why = '';
@@ -1104,7 +1133,7 @@ function voiceWatch() {
   const linked = voice.linked;
   voiceStop();
   if (answered) voiceReason('Phone stopped answering', 'Your phone stopped answering, so listening ended. Try again.');
-  else if (linked) voiceReason('Phone didn’t answer', 'Your phone didn’t answer. Open Tidal Glass on your phone, then try again.');
+  else if (linked) voiceReason('Phone didn’t answer', 'Your phone didn’t answer. Open Tidal\u00a0Glass on your phone, then try again.');
   else voiceReason('Can’t reach your phone', 'These glasses can’t reach your phone. Check that they’re online, then try again.');
 }
 
@@ -1112,8 +1141,17 @@ function voiceWatch() {
 // message says all of it for long enough to read.
 function voiceReason(short, long) {
   voice.note = short;
-  if (long) showToast(long, REASON_MS);
+  if (long) {
+    showToast(long, REASON_MS);
+    voice.toast = $('toast').textContent;
+  }
   drawVoice();
+}
+
+// A reason's message goes with what it was about: a cancelled offer, or the reader left behind.
+function voiceToastGone() {
+  const t = $('toast');
+  if (!t.hidden && voice.toast && t.textContent === voice.toast) hideToast();
 }
 
 // The next press anywhere clears the reason. A press anywhere but the microphone button also drops
@@ -1125,12 +1163,14 @@ function voicePress(e) {
   if (!onVoice && voice.offer) {
     voice.offer = null;
     if (tipResting) hideTip($('tip'));
+    voiceToastGone();
   }
   drawVoice();
 }
 
-// Leaving the reader or the mode drops a reason or an offer that belonged to it.
+// Leaving the reader or the mode drops a reason or an offer that belonged to it, and its message.
 function voiceForget() {
+  voiceToastGone();
   if (!voice.note && !voice.offer) return;
   voice.note = '';
   voice.offer = null;
@@ -1450,6 +1490,7 @@ function setMode(m) {
   settings = { ...settings, mode: m };
   save('qg.settings', settings);
   if (m === 'recite' && playing) pause();
+  untimedNote(null); // a note about the reciter's timing does not belong to reciting yourself
   hintStep = 0;
   applyMode();
   savePos();
@@ -1490,8 +1531,10 @@ function play() {
     .then((t) => { if (t && wantPlay) start(); })
     .catch((e) => {
       wantPlay = false;
-      showToast(e && e.message === 'not-recorded'
-        ? `${reciter().short} has not recorded this surah. Pick another reciter in Options.`
+      // The reciter's name never breaks across the two lines (a no-break hyphen and spaces).
+      const name = reciter().short.replace(/-/g, '\u2011').replace(/ /g, '\u00a0');
+      showToast(e && e.message === 'no-timing'
+        ? `No word timing for this surah with ${name} yet. Pick another reciter in Options.`
         : 'Can’t load this recitation right now');
     });
 }
@@ -1500,7 +1543,7 @@ function start() {
   wantPlay = false;
   const tm = timing.t.get(cur.v);
   if (!tm) {
-    showToast(timing.last && cur.v > timing.last ? `This recording ends at ayah ${timing.last}` : 'No timing for this ayah');
+    showToast(timing.last && cur.v > timing.last ? `No word timing after ayah ${timing.last}` : 'No word timing for this ayah');
     return;
   }
   audio.defaultPlaybackRate = settings.speed;
@@ -1509,6 +1552,7 @@ function start() {
   if (!(now >= tm.from - 80 && now < tm.to - 80)) audio.currentTime = tm.from / 1000;
   playing = true;
   drawTop();
+  untimedNote(tm);
   loop();
   audio.play().catch((e) => {
     if (e && e.name === 'AbortError') return; // replaced by a newer request, such as another reciter
@@ -1547,41 +1591,55 @@ function medallionAt(lastSeg) {
 
 function nextWake() {
   const tm = timing && cur && timing.t.get(cur.v);
-  if (!tm || !tm.segs.length) return 250;
+  if (!tm) return 250;
   const t = audio.currentTime * 1000;
+  const rate = audio.playbackRate || 1;
+  if (!tm.segs.length) return Math.max(16, Math.min(400, (tm.to - t) / rate)); // untimed: only its end
   const next = tm.segs.find((s) => s[1] > t + 4);
   const lastEnd = medallionAt(tm.segs[tm.segs.length - 1]);
   let due = next ? next[1] : tm.to;
   if (lastEnd > t + 4 && lastEnd < due) due = lastEnd; // the medallion gilds near the last word's end
-  return Math.max(16, Math.min(400, (due - t) / (audio.playbackRate || 1)));
+  return Math.max(16, Math.min(400, (due - t) / rate));
 }
 
-// The recitation is one file per surah, so the next ayah simply follows; repeats jump back.
+// The tip line says when the ayah on screen has no word timing, until the next ayah takes its place.
+const NO_TIMING = 'No word timing for this ayah';
+function untimedNote(tm) {
+  const tip = $('tip');
+  if (tm && tm.untimed && !tm.pass) { flashIn('tip', NO_TIMING); return; }
+  if (tip.classList.contains('on') && tip.textContent === NO_TIMING) hideTip(tip);
+}
+
+// The recitation is one file per surah, so the next ayah simply follows; repeats jump back. An ayah with
+// no word timing shows, unlit, over its own stretch of the recording; one with no stretch is passed over,
+// and the tip line says so.
 function step() {
   if (!playing || !cur || !timing || reciting()) return;
   const t = audio.currentTime * 1000;
   const tm = timing.t.get(cur.v);
   if (!tm) return;
-  if (t >= tm.to - 40 || tm.leftOut) {
-    // A left-out ayah is never repeated (endless repeat would loop on nothing); it is passed over.
-    if (repeatLeft !== 0 && !tm.leftOut) {
+  if (t >= tm.to - 40 || tm.pass) {
+    // A stretch under a second is not looped: endless repeat would stutter on a fragment.
+    if (repeatLeft !== 0 && !tm.pass && !(tm.untimed && tm.to - tm.from < 1000)) {
       if (repeatLeft > 0) repeatLeft--;
       audio.currentTime = tm.from / 1000;
       litWord = -1;
       return;
     }
-    if (!tm.leftOut) note('listened');
+    if (!tm.pass) note('listened');
     const c = chapter(cur.ch);
-    if (c && cur.v < c.n) {
-      const next = cur.v + 1;
-      // A recording that stops partway through the surah ends here, rather than running on under the
-      // next ayah's text.
+    let next = cur.v + 1;
+    const passed = [];
+    while (c && next <= c.n && timing.t.get(next) && timing.t.get(next).pass) passed.push(next++);
+    if (passed.length) flashIn('tip', `No word timing for ayah ${passed.join(', ')}`, 2600);
+    if (c && next <= c.n) {
+      // Where word timing stops partway through the surah the recitation stops too, rather than running
+      // on under the next ayah's text.
       if (!timing.t.get(next)) {
         pause();
-        showToast(`This recording ends at ayah ${cur.v}`);
+        showToast(`No word timing after ayah ${cur.v}`);
         return;
       }
-      if (timing.t.get(next).leftOut) showToast(`This recording leaves out ayah ${next}`);
       if (verses.get(cur.ch)[next]) {
         cur = { ch: cur.ch, v: next };
         savePos();
@@ -1589,6 +1647,7 @@ function step() {
         litWord = -1;
         repeatLeft = settings.repeat ? settings.repeat - 1 : -1;
         drawAyah();
+        untimedNote(timing.t.get(next));
       } else {
         // The next page is still on its way: wait for it rather than run ahead of the text.
         waitingForText = true;

@@ -21,7 +21,11 @@ Nothing of the Quran is stored in this repository; it is loaded while the app ru
 - English translation of the meaning: Saheeh International, via Quran.com (translation 20).
 - Recitations: [QuranicAudio](https://quranicaudio.com) (`download.quranicaudio.com`), as linked by Quran.com.
 - Reciters marked "aligned": audio from [mp3quran.net](https://mp3quran.net), word timing made by Bakar
-  Studio's own alignment (https://baklarrrr.github.io/quran-timings/).
+  Studio's own alignment ([quran-timings](https://github.com/baklarrrr/quran-timings), list:
+  [reciters.json](https://baklarrrr.github.io/quran-timings/reciters.json)). Where the alignment has no
+  timing for an ayah, the reader shows it unlit for its stretch of the recording (or passes over it when
+  that stretch is empty) and says on its tip line that there is no word timing. A surah without timing yet
+  says so when Play is pressed.
 - Fonts: Scheherazade New and Noto Naskh Arabic (SIL Open Font License), Amiri Quran (SIL Open Font
   License), loaded from Google Fonts.
 - Follow my voice runs on the phone, not here: FastConformer CTC fine-tuned on recitation by mrmuminov

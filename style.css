@@ -309,6 +309,9 @@ button:focus .ar-name { background: var(--gilt); -webkit-background-clip: text; 
      under a two-line message never run through its words. */
   color: var(--ink); font-size: 17px; background: rgb(36, 29, 17); text-wrap: balance; text-align: center;
 }
+/* In the reader a message stays above the text, even on the longest ayah: smaller type nearer the top,
+   so two lines end at 54.5 px and the text box starts at 59 px. */
+.reader:not([hidden]) ~ .toast { inset-block-start: 4px; padding: 5px 16px; font-size: 15px; line-height: 1.25; max-inline-size: 90%; }
 
 @media (prefers-reduced-motion: no-preference) {
   button, .orow, .prow { transition: box-shadow 140ms ease, background-color 140ms ease, border-color 140ms ease, transform 90ms ease; }
