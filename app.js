@@ -928,7 +928,19 @@ const voice = {
   quietTimer: 0,         // gives up when the phone stays silent (VOICE_QUIET)
 };
 
+// On the glasses every installed web app keeps its own storage (2026-10-25: Bakar Home could not read
+// Tidal Glass's pairing), so the phone app adds Quran Glass with the pairing in its own address
+// (#t=…&k=…, which never reaches a server) and this copy is kept. In a shared browser Tidal Glass's works too.
 function phonePairing() {
+  try {
+    const h = new URLSearchParams(location.hash.slice(1));
+    const t = h.get('t');
+    const k = h.get('k');
+    if (t && k) {
+      try { localStorage.setItem('tg.pair', JSON.stringify({ t, k })); } catch (e) { /* the address still works */ }
+      return { t, k };
+    }
+  } catch (e) { /* no usable address */ }
   try {
     const p = JSON.parse(localStorage.getItem('tg.pair') || 'null');
     return p && p.t && p.k ? p : null;
@@ -1094,7 +1106,7 @@ async function voiceStart(metered) {
   voice.offer = null;
   voice.note = '';
   hideToast(); // the reason for the last stop has been read: this press tries again
-  if (!phonePairing()) { voiceReason('Phone not linked', 'Open Tidal\u00a0Glass once on these glasses to link your phone'); return; }
+  if (!phonePairing()) { voiceReason('Phone not linked', 'In the Tidal\u00a0Glass phone app, tap \u201cPut Quran Glass on my glasses\u201d to link your phone'); return; }
   voice.on = true;
   voice.st = 'asking';
   voice.why = '';
