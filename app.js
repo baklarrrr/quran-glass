@@ -243,15 +243,20 @@ function fill(template, ch) {
   return template.replace('{ch3}', String(ch).padStart(3, '0')).replace('{ch}', String(ch));
 }
 
+// An ayah the recording leaves out (aligned reciters mark it left_out, with no length) is passed over; a
+// recording that stops partway through the surah ends at its last timed ayah (`last`).
 function parseTiming(data, audioUrl) {
   const t = new Map();
+  let last = 0;
   for (const s of data.audio_file.timestamps || []) {
     const v = Number(String(s.verse_key).split(':')[1]);
     // Some entries are placeholders like [1]; only [word, start, end] are timings.
     const segs = (s.segments || []).filter((x) => Array.isArray(x) && x.length >= 3).sort((a, b) => a[1] - b[1]);
-    t.set(v, { from: s.timestamp_from, to: s.timestamp_to, segs });
+    const leftOut = s.left_out === true || !(s.timestamp_to > s.timestamp_from);
+    t.set(v, { from: s.timestamp_from, to: s.timestamp_to, segs, leftOut });
+    if (!leftOut) last = Math.max(last, v);
   }
-  return { url: audioUrl || data.audio_file.audio_url, t };
+  return { url: audioUrl || data.audio_file.audio_url, t, last };
 }
 
 // Adds the alignment manifest's reciters to the list: first the copy kept on the glasses, then the
@@ -1320,7 +1325,10 @@ function play() {
 function start() {
   wantPlay = false;
   const tm = timing.t.get(cur.v);
-  if (!tm) { showToast('No timing for this ayah'); return; }
+  if (!tm) {
+    showToast(timing.last && cur.v > timing.last ? `This recording ends at ayah ${timing.last}` : 'No timing for this ayah');
+    return;
+  }
   audio.defaultPlaybackRate = settings.speed;
   audio.playbackRate = settings.speed;
   const now = audio.currentTime * 1000;
@@ -1380,17 +1388,26 @@ function step() {
   const t = audio.currentTime * 1000;
   const tm = timing.t.get(cur.v);
   if (!tm) return;
-  if (t >= tm.to - 40) {
-    if (repeatLeft !== 0) {
+  if (t >= tm.to - 40 || tm.leftOut) {
+    // A left-out ayah is never repeated (endless repeat would loop on nothing); it is passed over.
+    if (repeatLeft !== 0 && !tm.leftOut) {
       if (repeatLeft > 0) repeatLeft--;
       audio.currentTime = tm.from / 1000;
       litWord = -1;
       return;
     }
-    note('listened');
+    if (!tm.leftOut) note('listened');
     const c = chapter(cur.ch);
     if (c && cur.v < c.n) {
       const next = cur.v + 1;
+      // A recording that stops partway through the surah ends here, rather than running on under the
+      // next ayah's text.
+      if (!timing.t.get(next)) {
+        pause();
+        showToast(`This recording ends at ayah ${cur.v}`);
+        return;
+      }
+      if (timing.t.get(next).leftOut) showToast(`This recording leaves out ayah ${next}`);
       if (verses.get(cur.ch)[next]) {
         cur = { ch: cur.ch, v: next };
         savePos();
