@@ -640,7 +640,9 @@ function keepInView() {
   const lh = parseFloat(getComputedStyle(ayah).lineHeight) || 50;
   const line = Math.floor((s.offsetTop + s.offsetHeight / 2 - ayah.offsetTop) / lh);
   const target = ayah.offsetTop + Math.max(0, line - 1) * lh;
-  const top = Math.min(Math.round(target), box.scrollHeight - box.clientHeight);
+  // The furthest stop is a whole line too: a gilded last word's widened box adds a few pixels of scroll
+  // room, and stopping there would cut the marks off the top line.
+  const top = Math.min(Math.round(target), Math.floor((box.scrollHeight - box.clientHeight) / lh) * lh);
   // A short ease when effects are on, so a line change is followed rather than jumped.
   if (top !== box.scrollTop) box.scrollTo({ top, behavior: effects() === 'off' ? 'auto' : 'smooth' });
 }
