@@ -810,6 +810,7 @@ const voice = {
   on: false, st: '', why: '', mic: '', pct: 0, mb: 0, askedAt: 0,
   unclear: new Set(),  // `${ayah}:${word}` the phone heard but could not make out
   links: [], subs: [], key: null, topic: '', outbox: [], recent: [], moving: false, spareTimer: 0, peekTimer: 0,
+  aliveTimer: 0,         // tells the phone every 20 s that the glasses are still here (else it stops by itself)
 };
 
 function phonePairing() {
@@ -963,6 +964,8 @@ async function voiceStart(metered) {
     return;
   }
   phoneSend('qStart', { s: cur.ch, a: cur.v, w: reciteAt, ...(metered ? { metered: true } : {}) }); // from the word he is on
+  clearInterval(voice.aliveTimer);
+  voice.aliveTimer = setInterval(() => { if (voice.on) phoneSend('qAlive'); }, 20000);
   setTimeout(drawTop, 8100); // "not answering" shows by itself
 }
 
@@ -976,6 +979,8 @@ function voiceStop() {
 function voiceEnd() {
   voice.on = false;
   voice.st = '';
+  clearInterval(voice.aliveTimer);
+  voice.aliveTimer = 0;
   setTimeout(() => { if (!voice.on) phoneDisconnect(); }, 1500); // lets a last qStop go out
   drawVoice();
 }
