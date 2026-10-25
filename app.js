@@ -49,6 +49,7 @@ let playing = false;
 let repeatLeft = 0;         // further plays of this ayah; -1 = endless
 let litWord = -1;
 let waitingForText = false; // paused on purpose until the next page of verses arrives
+let wantPlay = false;       // Play was pressed while the recitation was still loading
 let loopTimer = 0;
 let toastTimer = 0;
 let tipFor = null;
@@ -291,6 +292,7 @@ async function moveTo(ch, v, keepPlaying) {
   }
   if (cur.ch !== ch || cur.v !== v) return; // moved on while loading
   drawAyah();
+  if (!audioReady()) prepareAudio().catch(() => {});
   if (keepPlaying && playing && timing) {
     const tm = timing.t.get(v);
     if (tm) audio.currentTime = tm.from / 1000;
@@ -399,39 +401,54 @@ function highlight(t, force) {
 
 // ---- playback --------------------------------------------------------------------------------
 
-async function play() {
-  if (!cur) return;
+// The surah's timing is fetched and the audio pointed at its file as soon as a surah opens, so a
+// pinch on Play reaches audio.play() at once: players often allow sound to start only from a press.
+async function prepareAudio() {
+  if (!cur) return null;
   const ch = cur.ch;
-  try {
-    timing = await ensureTiming(settings.reciter, ch);
-  } catch (e) {
-    showToast('Can’t load this recitation right now');
-    return;
+  const rid = settings.reciter;
+  const t = await ensureTiming(rid, ch);
+  if (!cur || cur.ch !== ch || settings.reciter !== rid) return null;
+  timing = { ...t, ch, rid };
+  if (audio.getAttribute('src') !== t.url) {
+    audio.preload = 'metadata';
+    audio.src = t.url;
   }
-  if (!cur || cur.ch !== ch) return;
+  return timing;
+}
+
+function audioReady() {
+  return !!(timing && cur && timing.ch === cur.ch && timing.rid === settings.reciter && audio.getAttribute('src') === timing.url);
+}
+
+function play() {
+  if (!cur) return;
+  if (audioReady()) { start(); return; }
+  wantPlay = true;
+  showToast('Getting the recitation ready…');
+  prepareAudio()
+    .then((t) => { if (t && wantPlay) start(); })
+    .catch(() => { wantPlay = false; showToast('Can’t load this recitation right now'); });
+}
+
+function start() {
+  wantPlay = false;
   const tm = timing.t.get(cur.v);
   if (!tm) { showToast('No timing for this ayah'); return; }
-  if (audio.getAttribute('src') !== timing.url) {
-    audio.src = timing.url;
-    await new Promise((resolve) => {
-      if (audio.readyState >= 1) return resolve();
-      audio.addEventListener('loadedmetadata', resolve, { once: true });
-      audio.addEventListener('error', resolve, { once: true });
-      audio.load();
-    });
-  }
+  audio.defaultPlaybackRate = settings.speed;
   audio.playbackRate = settings.speed;
   const now = audio.currentTime * 1000;
   if (!(now >= tm.from - 80 && now < tm.to - 80)) audio.currentTime = tm.from / 1000;
-  try {
-    await audio.play();
-  } catch (e) {
-    showToast('The recitation could not start');
-    return;
-  }
   playing = true;
   drawTop();
   loop();
+  audio.play().catch(() => {
+    playing = false;
+    clearTimeout(loopTimer);
+    loopTimer = 0;
+    drawTop();
+    showToast('Pinch Play again to start the recitation');
+  });
 }
 
 function pause() {
@@ -588,7 +605,9 @@ function changeOption(k, dir) {
     pause();
     timing = null;
     audio.removeAttribute('src');
+    audio.load();
     if (wasPlaying) play();
+    else prepareAudio().catch(() => {});
   }
   if (cur && ['meaning', 'gloss', 'memorise', 'size'].includes(k)) drawAyah();
 }
@@ -637,7 +656,13 @@ function wire() {
   audio.addEventListener('ended', () => { if (playing) step(); pause(); });
   // The system may pause the audio itself (another app, the display going to sleep): follow it.
   audio.addEventListener('pause', () => { if (playing && !waitingForText) pause(); });
-  audio.addEventListener('error', () => { if (playing) { pause(); showToast('The recitation stopped: connection problem'); } });
+  audio.addEventListener('error', () => {
+    if (!audio.getAttribute('src')) return; // cleared on purpose (reciter change)
+    if (playing) { pause(); showToast('The recitation stopped: connection problem'); }
+    // Start over next time rather than retrying a file that failed.
+    timing = null;
+    audio.removeAttribute('src');
+  });
 
   if ('mediaSession' in navigator) {
     const ms = navigator.mediaSession;
