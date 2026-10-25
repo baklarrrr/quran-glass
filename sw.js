@@ -4,7 +4,7 @@
 // shows on the next launch. Only this app's own files are handled: Quran.com data, the recitation
 // audio, the font and the optional reciter timings (another path on the same site) always come from
 // their own servers.
-const CACHE = 'quran-glass-v8';
+const CACHE = 'quran-glass-v9';
 const SCOPE = new URL(self.registration.scope);
 const SHELL = ['./', 'index.html', 'style.css', 'app.js', 'icon.svg', 'icon-mono.svg'];
 

@@ -61,7 +61,11 @@ const wordAudio = $('wordAudio');
 const previewAudio = $('preview');
 let settings = load('qg.settings', { ...DEFAULTS });
 let pos = load('qg.pos', null);          // { ch, v, w } last place; w = words gilded in Recite myself
-let chapters = load('qg.chapters', null); // [{ id, en, tn, ar, n }]
+// The surah list is Quran Foundation content, which their terms let an app keep for a week at most: it is
+// fetched again after seven days, and an older copy is dropped.
+const CHAPTERS_KEEP_MS = 7 * 24 * 3600 * 1000;
+let chapters = Date.now() - load('qg.chaptersAt', 0) < CHAPTERS_KEEP_MS ? load('qg.chapters', null) : null; // [{ id, en, tn, ar, n }]
+if (!chapters) { try { localStorage.removeItem('qg.chapters'); } catch (e) { /* fine */ } }
 let progress = load('qg.progress', freshProgress());
 
 const verses = new Map();   // ch -> array indexed by verse number (sparse until loaded)
@@ -182,7 +186,10 @@ async function ensureChapters() {
   if (chapters && chapters.length === 114) return chapters;
   const data = await getJson('/chapters?language=en');
   chapters = data.chapters.map((c) => ({ id: c.id, en: c.name_simple, tn: c.translated_name ? c.translated_name.name : '', ar: c.name_arabic, n: c.verses_count }));
-  try { localStorage.setItem('qg.chapters', JSON.stringify(chapters)); } catch (e) { /* fine */ }
+  try {
+    localStorage.setItem('qg.chapters', JSON.stringify(chapters));
+    localStorage.setItem('qg.chaptersAt', JSON.stringify(Date.now()));
+  } catch (e) { /* fine */ }
   return chapters;
 }
 
@@ -418,7 +425,7 @@ function renderHome() {
       b.id = `pick-${ch}`;
       b.dataset.tip = `${c.tn} · ${c.n} ayahs`;
       b.setAttribute('aria-label', `${c.en}, surah ${ch}`);
-      b.innerHTML = '<span class="ar-name" lang="ar" dir="rtl"></span><span class="en"></span>';
+      b.innerHTML = '<span class="ar-name" lang="ar" dir="rtl" translate="no"></span><span class="en"></span>';
       b.querySelector('.ar-name').textContent = c.ar;
       b.querySelector('.en').textContent = c.en;
       b.addEventListener('click', () => openFrom(b.id, { screen: 'reader', ch, v: pos && pos.ch === ch ? pos.v : 1 }));
@@ -439,7 +446,7 @@ function renderList() {
       b.id = `surah-${c.id}`;
       b.dataset.ch = String(c.id);
       b.dataset.tip = 'Pinch to open · swipe left or right to jump ten';
-      b.innerHTML = '<span class="num"></span><span class="names"><span class="en"></span><span class="sub"></span></span><span class="ar-name" lang="ar" dir="rtl"></span>';
+      b.innerHTML = '<span class="num"></span><span class="names"><span class="en"></span><span class="sub"></span></span><span class="ar-name" lang="ar" dir="rtl" translate="no"></span>';
       b.querySelector('.num').textContent = String(c.id);
       b.querySelector('.en').textContent = c.en;
       b.querySelector('.sub').textContent = `${c.tn} · ${c.n} ayahs`;

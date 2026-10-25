@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Quran Glass: privacy and terms</title>
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <style>
+    :root { color-scheme: dark; }
+    html, body { margin: 0; background: #0b0a08; color: #f3efe6; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+    main { max-inline-size: 38rem; margin: 0 auto; padding: 48px 20px 64px; display: flex; flex-direction: column; gap: 16px; }
+    h1 { margin: 0; font-size: 28px; }
+    h2 { margin: 12px 0 0; font-size: 19px; color: #ffd27a; }
+    p, li { margin: 0; line-height: 1.55; color: #cfc8b8; }
+    ul { margin: 0; padding-inline-start: 20px; display: flex; flex-direction: column; gap: 6px; }
+    a { color: #ffd27a; }
+    small { color: #9a937f; line-height: 1.5; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Quran Glass: privacy and terms</h1>
+    <p>Quran Glass is a free Quran reader for Meta Ray-Ban Display glasses, made by Bakar Studio as a personal
+      project. It has no accounts, no ads, no analytics and no tracking. It uses the Quran Foundation APIs
+      (Quran.com) for the Quran text, word meanings, word audio and word timing.</p>
+
+    <h2>What is kept, and where</h2>
+    <ul>
+      <li>On the glasses only, in the browser's own storage: your settings, your place (surah, ayah and word),
+        your progress, whether a tip has been shown, and the surah list (which is fetched again after seven days).
+        Nothing of this leaves the glasses. Removing the app from the glasses removes it.</li>
+      <li>The Quran text, meanings and audio are loaded while you read and are not stored by the app.</li>
+    </ul>
+
+    <h2>Who sees what</h2>
+    <ul>
+      <li>Loading the app, its fonts and its content contacts these services, which see your network address as any
+        website would: GitHub Pages (the app), Google Fonts (the Arabic fonts), the Quran Foundation API and its
+        audio host (text, meanings, word audio and timing), QuranicAudio (recitations) and, for reciters marked
+        “aligned”, mp3quran.net (recitations) and Bakar Studio's timing files on GitHub Pages.</li>
+      <li>Follow my voice (optional, with the Tidal Glass phone app): the glasses and your phone exchange short
+        messages through public MQTT brokers (broker.emqx.io, broker.hivemq.com and, as a spare,
+        public.cloud.shiftr.io). Each message is sealed with a key known only to your glasses and phone, so the
+        brokers carry unreadable data; they can see when messages pass. This web app records no audio.</li>
+    </ul>
+
+    <h2>Terms of use</h2>
+    <ul>
+      <li>Quran Glass is free for personal use. The Quran text is shown exactly as the Quran Foundation API
+        delivers it. Gilding follows recorded timing, your own marks or what your phone hears; it does not check
+        recitation or tajwīd.</li>
+      <li>Quran data provided by Quran.Foundation (Quran.com). English translation: Saheeh International.
+        Recitations: QuranicAudio; reciters marked “aligned”: mp3quran.net, word timing by Bakar Studio
+        (CC BY 4.0). Follow my voice uses mrmuminov's model, built on NVIDIA FastConformer (CC BY 4.0). Each keeps
+        its own terms. Quran Glass is not affiliated with Meta, Quran Foundation, QuranicAudio or mp3quran.net.</li>
+      <li>The app is provided as it is, without warranty.</li>
+    </ul>
+
+    <h2>Questions</h2>
+    <p>Open an issue at <a href="https://github.com/baklarrrr/quran-glass/issues">github.com/baklarrrr/quran-glass</a>.</p>
+    <small>Last updated 25 October 2026.</small>
+  </main>
+</body>
+</html>
