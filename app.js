@@ -19,6 +19,7 @@ const PAGE = 50;        // verses per request, the API's maximum
 const HISTORY_LIMIT = 4;
 const SESSION_GAP = 15 * 60 * 1000;  // a longer pause starts a new session
 const ACTIVE_CAP = 60 * 1000;        // gaps longer than a minute count as a pause, not reciting time
+const REASON_MS = 6000;              // a message saying why something stopped stays long enough to read
 const $ = (id) => document.getElementById(id);
 
 // Reciters whose recordings have word-by-word timing on Quran.com.
@@ -81,6 +82,7 @@ let toastTimer = 0;
 let tipFor = null;
 let tipShow = 0;
 let tipHide = 0;
+let tipResting = false;     // the reader's tip line shows the mobile-data offer between tips
 
 // The drawn ayah: one span per word, and the class each currently has, so only changes are written.
 let spans = [];
@@ -128,16 +130,19 @@ function save(key, value) {
 
 // On a see-through display a message cannot cover the text under it, so the top line steps aside
 // while a message shows.
-function showToast(text) {
+function showToast(text, ms = 1800) {
   const t = $('toast');
   t.textContent = text;
   t.hidden = false;
   document.body.classList.add('toasting');
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => {
-    t.hidden = true;
-    document.body.classList.remove('toasting');
-  }, 1800);
+  toastTimer = setTimeout(hideToast, ms);
+}
+
+function hideToast() {
+  clearTimeout(toastTimer);
+  $('toast').hidden = true;
+  document.body.classList.remove('toasting');
 }
 
 function shown(el, on) {
@@ -343,7 +348,7 @@ function render(next) {
   if (sc !== 'options') { stopPreview(true); disarmReset(); }
   if (sc !== 'reader') stopEffects();
   // Listening belongs to the reader; Options on top keeps it (the reader is still underneath).
-  if (sc !== 'reader' && sc !== 'options') voiceStop();
+  if (sc !== 'reader' && sc !== 'options') { voiceStop(); voiceForget(); }
   clearTips();
   for (const id of ['home', 'list', 'reader', 'progress', 'options']) $(id).hidden = id !== sc;
   if (sc === 'home') renderHome();
@@ -509,10 +514,11 @@ function drawTop() {
   $('where').textContent = c ? `${c.id} ${c.en} · ${cur.v} of ${c.n}` : '';
   const verse = currentVerse();
   if (reciting()) {
+    // With a voice state or reason the count is shortened, so the place on the left is never trimmed.
     const heard = voiceLine();
-    $('whoText').textContent = verse
-      ? `${heard ? heard + ' · ' : ''}${reciteAt} of ${verse.words.length} words${settings.memorise ? ' · memorise' : ''}`
-      : heard;
+    $('whoText').textContent = !verse ? heard
+      : heard ? `${heard} · ${reciteAt} of ${verse.words.length}`
+        : `${reciteAt} of ${verse.words.length} words${settings.memorise ? ' · memorise' : ''}`;
   } else {
     const extra = (settings.speed !== 1 ? ` · ${settings.speed}×` : '') + (settings.repeat !== 1 ? ` · ↻${settings.repeat === 0 ? '∞' : settings.repeat}` : '');
     $('whoText').textContent = reciter().short + extra;
@@ -724,20 +730,42 @@ function paintRecite() {
   const verse = currentVerse();
   if (!verse || !spans.length) return;
   const up = upcoming();
+  let unclear = false;
   for (let i = 0; i < spans.length; i++) {
     let cls = up;
-    if (i < reciteAt) cls = voice.unclear.has(`${cur.v}:${verse.words[i].p}`) ? 'w said unclear' : 'w said';
-    else if (i === reciteAt) {
+    if (i < reciteAt) {
+      unclear = voice.unclear.has(`${cur.v}:${verse.words[i].p}`);
+      cls = unclear ? 'w said unclear' : 'w said';
+    } else if (i === reciteAt) {
       if (settings.memorise && hintStep >= 2) cls = 'w hinted next';
       else if (settings.memorise && hintStep === 1) cls = 'w veiled next lettered';
       else cls = `${up} next`;
     }
     if (cls.includes('lettered')) spans[i].dataset.first = firstLetter(verse.words[i].ar);
     setCls(i, cls);
+    if (unclear && !unclearTold && voice.on) tellUnclear();
+    unclear = false;
   }
   const end = $('endMark');
   if (end) end.classList.toggle('done', reciteAt >= verse.words.length);
   syncMeaning(reciteAt / verse.words.length);
+}
+
+// The first time the phone leaves a word in fainter gold, the tip line says what that means, once.
+let unclearTold = !!load('qg.toldUnclear', false);
+let unclearTimer = 0;
+function tellUnclear() {
+  unclearTold = true;
+  save('qg.toldUnclear', true);
+  if (view.screen !== 'reader') return;
+  const first = 'Fainter gold: your phone wasn’t sure it heard that word';
+  flashIn('tip', first);
+  clearTimeout(unclearTimer);
+  unclearTimer = setTimeout(() => {
+    const tip = $('tip');
+    if (view.screen === 'reader' && tip.classList.contains('on') && tip.textContent === first) flashIn('tip', 'This app doesn’t judge recitation or tajwīd', 4500);
+    else if (tip.textContent === first) hideTip(tip);
+  }, 5500);
 }
 
 function gildNext() {
@@ -820,22 +848,38 @@ function playWord(w) {
 // Web apps cannot use the glasses' microphones; the phone app (Tidal Glass) can. When asked, it
 // listens through them, follows the recitation with an on-device Quran model and says which words it
 // heard, and they turn gold here as if pinched. The link is the phone's own: Tidal Glass keeps its
-// pairing on these glasses for this same site, and the messages travel sealed over the same brokers,
-// opened only while listening. Pinches keep working alongside; the phone only moves the gold forward.
+// pairing on these glasses for this same site, and the messages travel sealed (AES-GCM) through public
+// brokers. The links are open while Follow my voice is on, from the press until it stops or gives up,
+// and for a few seconds at launch and on return when this browser cannot read the glasses' battery:
+// the phone's report carries it (peekPhoneBattery). Pinches keep working alongside; the phone only
+// moves the gold forward.
 
 const BROKERS = ['wss://broker.emqx.io:8084/mqtt', 'wss://broker.hivemq.com:8884/mqtt'];
 const SPARE = { url: 'wss://public.cloud.shiftr.io', username: 'public', password: 'public' };
+// How long the phone may say nothing before the glasses stop asking. It answers a start at once and
+// sends its loudness four times a second while listening; getting ready takes longer, and a model
+// download reports each percent (minutes apart on a slow connection).
+const VOICE_QUIET = { asking: 20000, loading: 60000, model: 180000, listening: 20000 };
+// Why the phone stopped (its `why`): a short form for the top line and the whole of it for the message.
 const VOICE_WHY = {
-  'mic-permission': 'Allow the microphone for Tidal Glass on your phone, then try again',
-  'mic-background': 'Open Tidal Glass on your phone once, then try again',
-  text: 'Your phone could not load this surah',
-  model: 'The voice model did not load on your phone',
+  'mic-permission': ['Microphone not allowed', 'Allow the microphone for Tidal Glass on your phone, then try again'],
+  'mic-background': ['Open Tidal Glass once', 'Open Tidal Glass on your phone once, then try again'],
+  text: ['Surah didn’t load', 'Your phone could not load this surah'],
+  model: ['Voice model didn’t load', 'The voice model did not load on your phone'],
 };
 const voice = {
-  on: false, st: '', why: '', mic: '', pct: 0, mb: 0, askedAt: 0,
-  unclear: new Set(),  // `${ayah}:${word}` the phone heard but could not make out
+  on: false, st: '', why: '', mic: '', pct: 0, mb: 0,
+  askedAt: 0,            // when this listening was asked for
+  heardAt: 0,            // the phone's latest message
+  linked: false,         // a broker answered since the press
+  startTs: 0,            // the time stamp on the latest qStart; the phone's answers echo it (re)
+  note: '',              // why listening stopped, short, on the top line until the next press
+  offer: null,           // { mb }: the phone needs Wi-Fi for its model; the microphone button can use mobile data
+  report: '',            // the phone's last sealed report (battery), as the brokers keep it
+  unclear: new Set(),    // `${ayah}:${word}` the phone heard but could not make out
   links: [], subs: [], key: null, topic: '', outbox: [], recent: [], moving: false, spareTimer: 0, peekTimer: 0,
   aliveTimer: 0,         // tells the phone every 20 s that the glasses are still here (else it stops by itself)
+  quietTimer: 0,         // gives up when the phone stays silent (VOICE_QUIET)
 };
 
 function phonePairing() {
@@ -914,6 +958,7 @@ async function phoneConnect(subs) {
       reconnectPeriod: 1500, connectTimeout: 8000, ...extra,
     });
     client.on('connect', () => {
+      voice.linked = true;
       client.subscribe(voice.subs.map((x) => `bkr/${voice.topic}/${x}`), { qos: 1 });
       phoneFlush();
     });
@@ -946,27 +991,44 @@ function phoneFlush() {
   for (const o of due) for (const l of live) l.publish(`bkr/${voice.topic}/c`, o.body, { qos: 1 });
 }
 
-async function phoneSend(c, extra = {}) {
+// Sends a sealed command. One that cannot go out yet waits up to 30 s for a link, unless `keep` is
+// false: a stop delivered late could end the next start.
+async function phoneSend(c, extra = {}, keep = true) {
   if (!voice.key) return;
-  const body = await sealForPhone({ c, ts: Date.now(), ...extra });
+  const ts = Date.now();
+  if (c === 'qStart') voice.startTs = ts; // every answer to this start echoes it (re)
+  const body = await sealForPhone({ c, ts, ...extra });
   const live = voice.links.filter((l) => l.connected);
-  if (!live.length) { voice.outbox.push({ body, at: Date.now() }); return; }
+  if (!live.length) { if (keep) voice.outbox.push({ body, at: Date.now() }); return; }
   for (const l of live) l.publish(`bkr/${voice.topic}/c`, body, { qos: 1 });
 }
 
 async function phoneMessage(sub, text) {
+  // The phone's report stays on the brokers, so a return to view gets the same one again: it has still
+  // arrived, and links that came only for it close.
+  if (sub === 's' && text === voice.report) { if (!voice.on && voice.subs.length === 1) phoneDisconnect(); return; }
   if (voice.recent.includes(text)) return; // the same message from the other broker
   voice.recent.push(text);
   if (voice.recent.length > 16) voice.recent.shift();
   let m;
   try { m = await openFromPhone(text); } catch (e) { return; }
   if (sub === 's') {
-    if (Number.isFinite(m.gb)) drawBattery(m.gb / 100, !!m.gc);
-    if (!voice.on && voice.subs.length === 1) phoneDisconnect(); // only came for the battery
+    voice.report = text;
+    // The phone's report of the glasses' battery, for when this browser cannot read it.
+    if (!batteryKnown && Number.isFinite(m.gb)) drawBattery(m.gb / 100, !!m.gc);
+    if (!voice.on && voice.subs.length === 1) phoneDisconnect(); // the links came only for this report
     return;
   }
   if (m.t !== 'qv' || !voice.on || !cur || m.s !== cur.ch) return;
+  // `re` is the time stamp of the qStart the phone is answering. An answer to an earlier start (late,
+  // or replayed from a public broker) is dropped. Older phone builds send no `re`; that is accepted.
+  if (m.re != null && Number(m.re) < voice.startTs) return;
+  voice.heardAt = Date.now();
   if (m.st) voiceStatus(m);
+  // Words or loudness with no status: the phone was already listening to this surah (it moves rather
+  // than starting again), so it is listening.
+  else if (voice.st === 'asking' && (m.l != null || m.p != null)) { voice.st = 'listening'; drawVoice(); voiceWatch(); }
+  if (!voice.on) return;
   if (m.l != null) voiceLevel(m.l);
   if (!reciting() || view.screen !== 'reader') return;
   if (m.ka && m.m) voiceMarks(m.ka, m.m);
@@ -976,51 +1038,146 @@ async function phoneMessage(sub, text) {
 
 async function voiceStart(metered) {
   if (!cur) return;
-  if (!phonePairing()) { showToast('Open Tidal Glass once on these glasses to link your phone'); return; }
+  voice.offer = null;
+  voice.note = '';
+  hideToast(); // the reason for the last stop has been read: this press tries again
+  if (!phonePairing()) { voiceReason('Phone not linked', 'Open Tidal Glass once on these glasses to link your phone'); return; }
   voice.on = true;
   voice.st = 'asking';
   voice.why = '';
   voice.askedAt = Date.now();
+  voice.heardAt = 0;
+  voice.outbox = []; // nothing left from an earlier try goes out with this one
   drawVoice();
+  if ($('tip').classList.contains('on')) showTip(document.activeElement); // the button's new name
   if (!(await phoneConnect(['qv', 's']))) {
     voice.on = false;
-    showToast('Can’t reach your phone');
-    drawVoice();
+    voice.st = '';
+    voiceReason('Can’t reach your phone', 'Can’t reach your phone');
     return;
   }
+  if (!voice.on) return; // stopped while the link library loaded
+  voice.linked = voice.links.some((l) => l.connected);
   phoneSend('qStart', { s: cur.ch, a: cur.v, w: reciteAt, ...(metered ? { metered: true } : {}) }); // from the word he is on
   clearInterval(voice.aliveTimer);
-  voice.aliveTimer = setInterval(() => { if (voice.on) phoneSend('qAlive'); }, 20000);
+  // Check-ins start once the phone has answered; until then the start itself is all it needs.
+  voice.aliveTimer = setInterval(() => { if (voice.on && voice.heardAt >= voice.askedAt) phoneSend('qAlive'); }, 20000);
   setTimeout(drawTop, 8100); // "not answering" shows by itself
+  voiceWatch();
 }
 
+// Stops listening when asked (a press, leaving the reader, the display going to sleep): the phone is
+// told, then the links close.
 function voiceStop() {
   if (!voice.on) return;
-  phoneSend('qStop');
-  voiceEnd();
+  const bye = phoneSend('qStop', {}, false);
+  voiceEnd(false);
+  bye.catch(() => {}).then(() => { if (!voice.on) phoneDisconnect(); });
 }
 
-// Listening is over (asked, an error, or quiet): the gold stays, the link closes.
-function voiceEnd() {
+// Listening is over (asked, an error, quiet, or no answer): the gold stays, the check-ins stop and the
+// links close, so nothing keeps reconnecting in the background.
+function voiceEnd(close = true) {
   voice.on = false;
   voice.st = '';
   clearInterval(voice.aliveTimer);
+  clearTimeout(voice.quietTimer);
   voice.aliveTimer = 0;
-  setTimeout(() => { if (!voice.on) phoneDisconnect(); }, 1500); // lets a last qStop go out
+  voice.quietTimer = 0;
+  if (close) phoneDisconnect();
   drawVoice();
 }
 
+// Gives up when the phone has said nothing for longer than it should (VOICE_QUIET), and says why on
+// the top line. One timer per listening, re-armed only when it runs or the state changes.
+function voiceWatch() {
+  clearTimeout(voice.quietTimer);
+  voice.quietTimer = 0;
+  if (!voice.on) return;
+  const limit = VOICE_QUIET[voice.st] || VOICE_QUIET.asking;
+  const quiet = Date.now() - Math.max(voice.askedAt, voice.heardAt);
+  if (quiet < limit) { voice.quietTimer = setTimeout(voiceWatch, limit - quiet + 50); return; }
+  const answered = voice.heardAt >= voice.askedAt;
+  const linked = voice.linked;
+  voiceStop();
+  if (answered) voiceReason('Phone stopped answering', 'Your phone stopped answering, so listening ended. Try again.');
+  else if (linked) voiceReason('Phone didn’t answer', 'Your phone didn’t answer. Open Tidal Glass on your phone, then try again.');
+  else voiceReason('Can’t reach your phone', 'These glasses can’t reach your phone. Check that they’re online, then try again.');
+}
+
+// After listening stops for a reason, the top line keeps it in short until the next press, and the
+// message says all of it for long enough to read.
+function voiceReason(short, long) {
+  voice.note = short;
+  if (long) showToast(long, REASON_MS);
+  drawVoice();
+}
+
+// The next press anywhere clears the reason. A press anywhere but the microphone button also drops
+// the mobile-data offer; on the button it is the yes.
+function voicePress(e) {
+  if (!voice.note && !voice.offer) return;
+  const onVoice = !!(e.target && e.target.closest && e.target.closest('#voice'));
+  voice.note = '';
+  if (!onVoice && voice.offer) {
+    voice.offer = null;
+    if (tipResting) hideTip($('tip'));
+  }
+  drawVoice();
+}
+
+// Leaving the reader or the mode drops a reason or an offer that belonged to it.
+function voiceForget() {
+  if (!voice.note && !voice.offer) return;
+  voice.note = '';
+  voice.offer = null;
+  drawVoice();
+}
+
+// The phone needs Wi-Fi once for its voice model and has stopped. Nothing listens or downloads until
+// the microphone button, now named "Use mobile data", is pressed; the tip line says so until then.
+function voiceOffer(mb) {
+  voice.offer = { mb: mb > 0 ? Math.round(mb) : 0 };
+  voiceReason('Needs Wi-Fi once', `Your phone needs Wi-Fi once to download the voice model${offerSize()}.`);
+  if (view.screen === 'reader') {
+    clearTimeout(tipShow);
+    tipFor = document.activeElement === $('voice') ? $('voice') : null;
+    hideTip($('tip'));
+  }
+}
+
+function offerSize() {
+  return voice.offer && voice.offer.mb ? ` (${voice.offer.mb} MB)` : '';
+}
+
 function voiceStatus(m) {
+  const before = voice.st;
   voice.st = m.st;
   voice.why = m.why || '';
   if (m.mic) voice.mic = m.mic;
   if (m.pct != null) voice.pct = m.pct;
   if (m.mb) voice.mb = m.mb;
   if (m.st === 'listening') showToast(voice.mic === 'glasses' ? 'Listening through your glasses' : 'Listening through your phone');
-  else if (m.st === 'needs-wifi') showToast(`Your phone needs Wi-Fi once for the voice model (${voice.mb} MB). Pinch Listen to use mobile data.`);
-  else if (m.st === 'error') { showToast(VOICE_WHY[voice.why] || 'Listening stopped on your phone'); voiceEnd(); }
-  else if (m.st === 'stopped') { if (voice.why === 'quiet') showToast('Stopped listening after two quiet minutes'); voiceEnd(); }
+  else if (m.st === 'needs-wifi') {
+    voiceEnd();
+    voiceOffer(Number(m.mb) || 0);
+    return;
+  } else if (m.st === 'error') {
+    voiceEnd();
+    // The phone words its own download failures ("download stopped (…)", "the model server answered …").
+    const why = VOICE_WHY[voice.why] || (before === 'model' || /download|model/.test(voice.why)
+      ? ['Download stopped', 'The voice model download stopped on your phone. Try again.']
+      : ['Listening stopped', 'Listening stopped on your phone']);
+    voiceReason(why[0], why[1]);
+    return;
+  } else if (m.st === 'stopped') {
+    voiceEnd();
+    if (voice.why === 'quiet') voiceReason('Quiet for 2 minutes', 'Stopped listening after two quiet minutes');
+    else if (voice.why !== 'asked') voiceReason('Listening stopped', 'Listening stopped on your phone');
+    return;
+  }
   drawVoice();
+  voiceWatch(); // the new state may allow a longer or shorter silence
 }
 
 // The live dot follows the loudness the phone hears, so it is clear the voice is reaching it.
@@ -1029,21 +1186,30 @@ function voiceLevel(level) {
   dot.style.opacity = voice.on ? String(0.35 + 0.65 * Math.min(1, level / 40)) : '';
 }
 
+// The top line's voice state, short enough to sit beside the longest place (and the battery).
 function voiceLine() {
-  if (!voice.on) return '';
-  if (voice.st === 'asking') return Date.now() - voice.askedAt > 8000 ? 'Your phone isn’t answering' : 'Asking your phone…';
+  if (!voice.on) return voice.note;
+  if (voice.st === 'asking') return Date.now() - voice.askedAt > 8000 ? 'Phone not answering' : 'Asking your phone…';
   if (voice.st === 'loading') return 'Getting ready…';
   if (voice.st === 'model') return `Voice model ${voice.pct}%`;
-  if (voice.st === 'needs-wifi') return 'Needs Wi-Fi once';
   if (voice.st === 'listening') return 'Listening';
   return '';
 }
 
+// The button's one name in each state, used by its label and its tip alike.
+function voiceName() {
+  if (voice.on) return 'Stop listening';
+  if (voice.offer) return `Use mobile data${offerSize()}`;
+  return 'Follow my voice';
+}
+
 function drawVoice() {
   const b = $('voice');
-  b.classList.toggle('on', voice.on);
+  // Filled with gold only while the phone says it is listening; asking and getting ready show on the
+  // top line, so the button never looks as if it hears what it does not.
+  b.classList.toggle('on', voice.on && voice.st === 'listening');
   b.setAttribute('aria-pressed', voice.on ? 'true' : 'false');
-  b.setAttribute('aria-label', voice.on ? 'Stop listening' : 'Follow my voice');
+  b.setAttribute('aria-label', voiceName());
   if (!voice.on) $('liveDot').style.opacity = '';
   drawTop();
   refreshTip();
@@ -1110,7 +1276,9 @@ function reciteTo(n) {
   keepInView();
 }
 
-// The glasses' battery as the phone reports it (5% steps), for when this browser does not know it.
+// The glasses' battery as the phone reports it (5% steps), for when this browser cannot read it: at
+// launch and on return, links open only to fetch that report. The phone keeps it on the brokers, so
+// it comes at once, and the links close as it arrives (phoneMessage), or after 8 s if none comes.
 async function peekPhoneBattery() {
   if (voice.on || voice.links.length || !phonePairing()) return;
   if (!(await phoneConnect(['s']))) return;
@@ -1122,7 +1290,8 @@ async function peekPhoneBattery() {
 // streak from one word to the next, a few sparks when an ayah is complete. Nothing animates while the
 // text is still, and nothing runs off screen.
 
-// Battery: below 30% (not charging) Full effects run as Calm, below 15% they are off; it is said once.
+// Battery: below 30% (not charging) Full effects run as Calm, below 15% they are off; it is said once,
+// and Options → Effects shows it until the glasses charge.
 function effects() {
   if (REDUCED || batteryTier === 'off') return 'off';
   if (batteryTier === 'calm' && settings.effects === 'full') return 'calm';
@@ -1266,7 +1435,7 @@ function applyMode() {
   $('play').hidden = r;
   $('hint').hidden = !r;
   $('voice').hidden = !r;
-  if (!r) voiceStop();
+  if (!r) { voiceStop(); voiceForget(); }
   $('textbox').tabIndex = r ? 0 : -1;
   shown($('modeListen'), !r);
   shown($('modeRecite'), r);
@@ -1455,12 +1624,17 @@ const TIPS = {
   prevAyah: () => 'Previous ayah',
   play: () => (playing ? 'Pause' : 'Play the recitation'),
   hint: () => (settings.memorise ? 'Hint: first letter, then the word, then hear it' : 'Hint: the next word’s reading, then hear it'),
-  voice: () => (!voice.on ? 'Follow my voice: your phone listens and gilds each word'
-    : voice.st === 'needs-wifi' ? 'Use mobile data for the voice model' : 'Stop listening'),
+  voice: () => (voice.on ? voiceName()
+    : voice.offer ? `${voiceName()} · any other pinch cancels`
+      : 'Follow my voice: your phone listens and gilds each word'),
   nextAyah: () => 'Next ayah',
   mode: () => (reciting() ? 'Reciting yourself · pinch to follow the reciter' : 'Following the reciter · pinch to recite yourself'),
   readerOptions: () => 'Reciter, font, effects and more',
   textbox: () => 'Pinch or swipe right on each word you say · swipe left to undo',
+  // Options → Effects says when the battery has taken over, and until when.
+  'opt-effects': () => (REDUCED ? 'Off: the system asks for reduced motion'
+    : effects() !== settings.effects ? `Battery under ${batteryTier === 'off' ? '15%: effects off' : '30%: Calm'} until it charges`
+      : 'Full: gold sweep, trail and sparks · Calm: sweep only'),
 };
 const TIP_SLOT = { home: 'tip-home', list: 'tip-list', reader: 'tip', progress: 'tip-progress', options: 'tip-options' };
 
@@ -1477,7 +1651,9 @@ function showTip(el) {
   if (!slot) return;
   tipFor = tipText(el) ? el : null;
   if (!tipFor) { hideTip(slot); return; }
-  tipShow = setTimeout(() => { if (tipFor === el) putTip(slot, tipText(el), slot.dataset.default ? 2600 : 2200); }, 160);
+  // The microphone button's tip stays while it offers mobile data, so the press is never a surprise.
+  const ms = voice.offer && el.id === 'voice' ? 0 : slot.dataset.default ? 2600 : 2200;
+  tipShow = setTimeout(() => { if (tipFor === el) putTip(slot, tipText(el), ms); }, 160);
 }
 
 // A message in the reader's tip line, such as "Ayah complete".
@@ -1494,12 +1670,22 @@ function flashIn(id, text, ms) {
 // Shows a tip; with no time given it stays until it is replaced or hidden.
 function putTip(slot, text, ms) {
   clearTimeout(tipHide);
+  tipResting = false;
   slot.textContent = text;
   slot.classList.add('on');
   if (ms) tipHide = setTimeout(() => hideTip(slot), ms);
 }
 
+// While the phone waits for a yes to mobile data, the reader's tip line goes back to saying how to give
+// it instead of going blank, whatever has focus.
 function hideTip(slot) {
+  if (slot.id === 'tip' && voice.offer && view.screen === 'reader') {
+    slot.textContent = document.activeElement === $('voice') ? TIPS.voice() : `Pinch the microphone to use mobile data${offerSize()}`;
+    slot.classList.add('on');
+    tipResting = true;
+    return;
+  }
+  tipResting = false;
   slot.classList.remove('on');
   if (slot.dataset.default) slot.textContent = slot.dataset.default;
 }
@@ -1512,6 +1698,7 @@ function clearTips() {
 }
 
 function refreshTip() {
+  if (tipResting) { hideTip($('tip')); return; } // the offer line, said again for the current state
   if (tipFor && view.screen === 'reader' && $('tip').classList.contains('on')) $('tip').textContent = tipText(tipFor);
 }
 
@@ -1616,7 +1803,7 @@ function renderProgress() {
 
 const OPTIONS = [
   { k: 'mode', label: 'Mode', tip: 'Follow a reciter, or recite and pinch each word', values: ['listen', 'recite'], text: (v) => (v === 'recite' ? 'Recite myself' : 'Follow the reciter') },
-  { k: 'reciter', label: 'Reciter', tip: 'Swipe to choose a reciter and hear a few seconds of each (while a recitation plays, it switches to them)', values: RECITERS.map((r) => r.id), text: (v) => { const r = RECITERS.find((x) => x.id === v) || RECITERS[0]; return r.custom ? `${r.name} · aligned` : r.name; } },
+  { k: 'reciter', label: 'Reciter', tip: 'Swipe to choose and hear each reciter · switches if playing', values: RECITERS.map((r) => r.id), text: (v) => { const r = RECITERS.find((x) => x.id === v) || RECITERS[0]; return r.custom ? `${r.name} · aligned` : r.name; } },
   { k: 'repeat', label: 'Each ayah', tip: 'How many times each ayah plays', values: REPEATS, text: (v) => (v === 0 ? 'Repeat endlessly' : v === 1 ? 'Once' : `${v} times`) },
   { k: 'speed', label: 'Speed', tip: 'Speed of the recitation', values: SPEEDS, text: (v) => `${v}×` },
   { k: 'meaning', label: 'Meaning', tip: 'English meaning under the ayah', values: [true, false], text: (v) => (v ? 'Shown' : 'Hidden') },
@@ -1624,10 +1811,19 @@ const OPTIONS = [
   { k: 'memorise', label: 'Memorise', tip: 'Each word stays hidden until it is recited', values: [false, true], text: (v) => (v ? 'Words appear as recited' : 'Off') },
   { k: 'size', label: 'Text size', tip: 'Size of the Arabic text', values: [0, 1], text: (v) => (v ? 'Medium' : 'Large') },
   { k: 'script', label: 'Arabic font', tip: 'Typeface of the Arabic, shown beside its name', values: SCRIPTS.map((s) => s.id), text: (v) => (SCRIPTS.find((s) => s.id === v) || SCRIPTS[0]).name },
-  { k: 'effects', label: 'Effects', tip: 'Full: gold sweep, trail and sparks · Calm: sweep only', values: EFFECTS, text: (v) => (REDUCED ? 'Off · reduced motion' : { full: 'Full', calm: 'Calm', off: 'Off' }[v]) },
+  { k: 'effects', label: 'Effects', tip: 'Full: gold sweep, trail and sparks · Calm: sweep only', values: EFFECTS, text: effectsText },
 ];
 const RESET_TIP = 'Keeps your mode, your place and your progress';
-const RESET_LIST = 'Alafasy · once · 1× · meanings shown · Memorise off · large Scheherazade · full effects';
+// Everything Reset restores; while it is armed the list has the whole header line.
+const RESET_LIST = 'Alafasy, once, 1×, meanings on, Memorise off, large Scheherazade, full effects';
+
+// The chosen effects, and what actually runs when the battery has taken over (effects()).
+function effectsText(v) {
+  const name = { full: 'Full', calm: 'Calm', off: 'Off' };
+  if (REDUCED) return 'Off · reduced motion';
+  const now = effects();
+  return now === v ? name[v] : `${name[v]} · ${now}, battery low`;
+}
 
 function buildOptions() {
   const box = $('optRows');
@@ -1741,6 +1937,7 @@ function pressReset() {
   if (!resetArmed) {
     row.classList.add('armed');
     row.querySelector('.lab').textContent = 'Pinch again to reset';
+    $('options').classList.add('resetting'); // the list takes the title's place for these 3 s
     flashIn('tip-options', RESET_LIST, 3000);
     resetArmed = setTimeout(disarmReset, 3000);
     return;
@@ -1752,6 +1949,7 @@ function pressReset() {
 function disarmReset() {
   clearTimeout(resetArmed);
   resetArmed = 0;
+  $('options').classList.remove('resetting');
   const row = $('opt-reset');
   if (!row) return;
   row.classList.remove('armed');
@@ -1935,6 +2133,7 @@ function drawBattery(level, charging) {
   if (tier !== batteryTier) {
     batteryTier = tier;
     applyEffects();
+    if (view.screen === 'options') renderOptions(true); // the Effects row says what runs, and why
     if (tier === 'off') showToast('Battery under 15%: effects off to save power');
     else if (tier === 'calm' && settings.effects === 'full') showToast('Battery under 30%: calmer effects to save power');
   }
@@ -1962,10 +2161,12 @@ function wire() {
   $('play').addEventListener('click', () => (playing ? pause() : play()));
   $('hint').addEventListener('click', hint);
   $('voice').addEventListener('click', () => {
-    if (!voice.on) voiceStart(false);
-    else if (voice.st === 'needs-wifi') voiceStart(true);
-    else voiceStop();
+    if (voice.on) voiceStop();
+    else voiceStart(!!voice.offer); // named "Use mobile data" while the phone waits for that yes
   });
+  // The next press anywhere clears a stop reason from the top line (and elsewhere, a mobile-data offer).
+  document.addEventListener('keydown', (e) => { if (e.key === 'Enter') voicePress(e); }, true);
+  document.addEventListener('click', (e) => { if (e.detail) voicePress(e); }, true);
   $('prevAyah').addEventListener('click', () => stepAyah(-1));
   $('nextAyah').addEventListener('click', () => stepAyah(1));
   $('mode').addEventListener('click', () => setMode(reciting() ? 'listen' : 'recite'));

@@ -1,8 +1,9 @@
 /* Quran on Meta Ray-Ban Display.
    The display is additive: black adds no light and reads as see-through, so the page stays black and
    only the words, a few hairlines and the focus glow are lit. Words not yet recited are a warm,
-   restful white; recited words are gilded; the word being said is the brightest gold. Nothing moves
-   on its own: the gilding advances only with the reciter or with the wearer's own marks. */
+   restful white (in Recite myself the next one to say is in full light); recited words are gilded; the
+   word being said is the brightest gold. Nothing moves on its own: the gilding advances only with the
+   reciter or with the wearer's own marks. */
 :root {
   --ink: #ffffff;
   --word: #ece7dc;              /* calm, slightly warm white */
@@ -16,6 +17,8 @@
   /* Gilding: pale highlight at the top of the letters, deep gold at the base. */
   --gilt: linear-gradient(180deg, #fff3cf 0%, #f6d27c 46%, #c9923b 100%);
   --gilt-now: linear-gradient(180deg, #fffdf4 0%, #ffe7a8 42%, #f4bf55 100%);
+  /* Fainter gilding for a word the phone did not catch clearly (Follow my voice). */
+  --gilt-faint: linear-gradient(180deg, #e6d6ad 0%, #d6b56c 46%, #a97f3b 100%);
   /* Scheherazade New by default: open letterforms and sturdy strokes read best on the see-through
      display, and it carries every Uthmani mark. Amiri Quran and Noto Naskh are in Options → Arabic font. */
   --arabic: "Scheherazade New", "Amiri Quran", "Noto Naskh Arabic", serif;
@@ -125,8 +128,10 @@ button:focus .ar-name { background: var(--gilt); -webkit-background-clip: text; 
 /* ---- reader --------------------------------------------------------------------------------- */
 .reader { gap: 10px; padding-block-end: 12px; position: relative; }
 .topline { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 15px; color: var(--dim); flex: none; min-block-size: 20px; }
-.where { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--soft); } /* carries the surah and ayah: readable outdoors */
-.who { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+/* The place (surah and ayah) is never trimmed; if anything has to give, it is the end of the status. */
+.where { flex: none; white-space: nowrap; color: var(--soft); } /* carries the surah and ayah: readable outdoors */
+.who { display: inline-flex; align-items: center; gap: 8px; min-inline-size: 0; white-space: nowrap; font-variant-numeric: tabular-nums; }
+#whoText { min-inline-size: 0; overflow: hidden; text-overflow: ellipsis; }
 .dot { inline-size: 8px; block-size: 8px; border-radius: 50%; background: var(--dim); }
 .dot.live { background: var(--gold); box-shadow: 0 0 8px var(--gold); }
 /* A fine gold rule under the top line with a small lozenge at its centre: with the ayah medallion,
@@ -172,13 +177,14 @@ button:focus .ar-name { background: var(--gilt); -webkit-background-clip: text; 
   filter: drop-shadow(0 0 7px rgba(255, 196, 90, 0.55));
   text-decoration: underline 2px var(--gold); text-decoration-skip-ink: none; text-underline-offset: 0.42em;
 }
-/* Follow my voice: a word the phone heard but could not make out keeps its gold (never dimmer than the
-   words still to come) and carries a dotted gold line that says "not sure". */
-.ayah .w.said.unclear {
-  text-decoration: underline dotted 2px var(--gold); text-decoration-skip-ink: none; text-underline-offset: 0.42em;
-}
-/* Where the wearer is in Recite myself: a gold line under the next word, at the text (not the box). */
+/* Follow my voice: a word the phone heard but could not make out is gilded in a fainter gold, with no
+   line of its own (dotted lines belong to Memorise and hints). It stays brighter than the words still
+   to come, and the reader says once what it means. */
+.ayah .w.said.unclear { background: var(--gilt-faint); -webkit-background-clip: text; background-clip: text; }
+/* Where the wearer is in Recite myself: the word to say next is in full light, brighter than the gold
+   behind it, with a gold line under it at the text (not the box). */
 .ayah .w.next {
+  color: var(--word);
   text-decoration: underline 2px rgba(255, 210, 122, 0.7); text-decoration-skip-ink: none; text-underline-offset: 0.42em;
 }
 .ayah .w.veiled {
@@ -210,6 +216,11 @@ button:focus .ar-name { background: var(--gilt); -webkit-background-clip: text; 
   -webkit-background-clip: text; background-clip: text;
   animation: gild-sweep 760ms cubic-bezier(0.3, 0.2, 0.5, 0.95) 1;
 }
+.fx-calm .ayah .w.said.unclear.sweep, .fx-full .ayah .w.said.unclear.sweep {
+  background: linear-gradient(100deg, transparent 38%, #fff3cf 50%, transparent 62%), var(--gilt-faint);
+  background-size: 300% 100%, 100% 100%;
+  -webkit-background-clip: text; background-clip: text;
+}
 /* A soft streak from the last word to the word now being said (Follow the reciter). */
 .comet {
   position: absolute; inset-block-start: 0; inset-inline-start: 0; inline-size: 0; block-size: 0;
@@ -237,8 +248,9 @@ button:focus .ar-name { background: var(--gilt); -webkit-background-clip: text; 
 .round.primary { inline-size: 80px; block-size: 80px; border: 3px solid rgba(236, 231, 220, 0.6); }
 .round.primary svg { inline-size: 38px; block-size: 38px; }
 #hint.primary { border-color: rgba(255, 210, 122, 0.85); color: var(--gold); }
-/* Listening: the microphone button fills with gold light while the phone follows the voice (the Hint
-   button beside it is a ring only), and the top line says Listening in gold. */
+/* Listening: the microphone button fills with gold light only while the phone says it is listening
+   (not while asking or getting ready; the top line says those), the Hint button beside it is a ring
+   only, and the top line says Listening in gold. */
 #voice.on { border-color: rgba(255, 210, 122, 0.85); color: var(--gold); background: var(--gold-soft); }
 .who.listening { color: var(--gold); }
 /* One line always, so a tip never shifts the text above it. */
@@ -281,7 +293,12 @@ button:focus .ar-name { background: var(--gilt); -webkit-background-clip: text; 
 /* Armed for the second pinch: the focus ring itself turns warning red, so it is not hidden under gold. */
 .orow.action.armed:focus { border-color: #ff9d8a; background: rgba(255, 157, 138, 0.16); box-shadow: 0 0 0 3px #ff9d8a, 0 0 16px rgba(255, 157, 138, 0.5); }
 .orow.action.armed .lab { color: #ffb8a8; }
-.credit { flex: none; margin-top: auto; font-size: 13px; line-height: 1.35; color: var(--dim); }
+/* Armed, the list of what Reset restores takes the whole header line for its three seconds. The title
+   keeps its space, so nothing below moves. */
+#options.resetting .head { position: relative; }
+#options.resetting .head h2 { visibility: hidden; }
+#options.resetting .headtip { position: absolute; inset-inline: 0; inset-block-start: 50%; transform: translateY(-50%); text-align: start; }
+.credit { flex: none; margin-top: auto; font-size: 13px; line-height: 1.35; color: var(--dim); text-wrap: pretty; } /* no lone last word */
 
 /* ---- toast ---------------------------------------------------------------------------------- */
 .toasting .topline, .toasting .head { opacity: 0; }
