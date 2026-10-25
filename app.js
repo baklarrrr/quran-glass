@@ -926,6 +926,8 @@ const voice = {
   links: [], subs: [], key: null, topic: '', outbox: [], sent: [], recent: [], moving: false, peekTimer: 0,
   aliveTimer: 0,         // tells the phone every 20 s that the glasses are still here (else it stops by itself)
   quietTimer: 0,         // gives up when the phone stays silent (VOICE_QUIET)
+  startBody: '',         // the sealed start, sent again unchanged until the phone answers
+  retryTimer: 0,
 };
 
 // On the glasses every installed web app keeps its own storage (2026-10-25: Bakar Home could not read
@@ -1059,6 +1061,7 @@ async function phoneSend(c, extra = {}, keep = true) {
   const ts = Date.now();
   if (c === 'qStart') voice.startTs = ts; // every answer to this start echoes it (re)
   const body = await sealForPhone({ c, ts, ...extra });
+  if (c === 'qStart') voice.startBody = body;
   const live = voice.links.filter((l) => l.connected);
   if (!live.length) { if (keep) voice.outbox.push({ body, at: Date.now() }); return; }
   for (const l of live) l.publish(`bkr/${voice.topic}/c`, body, { qos: 1 });
@@ -1125,7 +1128,17 @@ async function voiceStart(metered) {
   // Stopped while the links were opening (a quick second press): close what just opened.
   if (!voice.on) { phoneDisconnect(); return; }
   voice.linked = voice.links.some((l) => l.connected);
+  voice.startBody = '';
   phoneSend('qStart', { s: cur.ch, a: cur.v, w: reciteAt, ...(metered ? { metered: true } : {}) }); // from the word he is on
+  // Until the phone answers, the same start goes out again every 4 s: the phone ignores one it already
+  // has, and starts if it was off the broker for a moment when the first passed (2026-10-25: from home
+  // only one broker could be reached, and the phone dropped off it now and then).
+  clearInterval(voice.retryTimer);
+  voice.retryTimer = setInterval(() => {
+    if (!voice.on || voice.heardAt >= voice.askedAt) { clearInterval(voice.retryTimer); voice.retryTimer = 0; return; }
+    if (!voice.startBody) return;
+    for (const l of voice.links.filter((x) => x.connected)) l.publish(`bkr/${voice.topic}/c`, voice.startBody, { qos: 1 });
+  }, 4000);
   clearInterval(voice.aliveTimer);
   // Check-ins start once the phone has answered; until then the start itself is all it needs.
   voice.aliveTimer = setInterval(() => { if (voice.on && voice.heardAt >= voice.askedAt) phoneSend('qAlive'); }, 20000);
@@ -1148,8 +1161,10 @@ function voiceEnd(close = true) {
   voice.on = false;
   voice.st = '';
   clearInterval(voice.aliveTimer);
+  clearInterval(voice.retryTimer);
   clearTimeout(voice.quietTimer);
   voice.aliveTimer = 0;
+  voice.retryTimer = 0;
   voice.quietTimer = 0;
   if (close) phoneDisconnect();
   drawVoice();
