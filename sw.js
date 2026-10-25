@@ -1,9 +1,11 @@
 'use strict';
 
 // Keeps the app shell on the glasses so it opens quickly on a slow link. Network first, so an update
-// shows on the next launch. Only this site's own files are handled: Quran.com data, the recitation
-// audio and the font always come from their own servers.
-const CACHE = 'quran-glass-v3';
+// shows on the next launch. Only this app's own files are handled: Quran.com data, the recitation
+// audio, the font and the optional reciter timings (another path on the same site) always come from
+// their own servers.
+const CACHE = 'quran-glass-v4';
+const SCOPE = new URL(self.registration.scope);
 const SHELL = ['./', 'index.html', 'style.css', 'app.js', 'icon.svg', 'icon-mono.svg'];
 
 self.addEventListener('install', (event) => {
@@ -20,7 +22,7 @@ self.addEventListener('activate', (event) => {
 
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
-  if (event.request.method !== 'GET' || url.origin !== self.location.origin) return;
+  if (event.request.method !== 'GET' || url.origin !== SCOPE.origin || !url.pathname.startsWith(SCOPE.pathname)) return;
   event.respondWith((async () => {
     const cache = await caches.open(CACHE);
     try {

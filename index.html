@@ -11,7 +11,8 @@
   <link rel="icon" href="icon.svg" type="image/svg+xml">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Amiri+Quran&display=swap">
+  <!-- Three Arabic fonts (Options → Arabic font); only the one in use is downloaded. -->
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Amiri+Quran&family=Noto+Naskh+Arabic:wght@500;700&family=Scheherazade+New:wght@500;700&display=swap">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -19,10 +20,10 @@
     <!-- Home: carry on where you stopped, or pick a surah. -->
     <section id="home" class="screen" aria-labelledby="homeTitle">
       <header class="head">
-        <h1 id="homeTitle">Quran</h1>
-        <span id="homeNote" class="dim"></span>
+        <h1 id="homeTitle"><span class="title-ar" lang="ar" dir="rtl">القرآن الكريم</span><span class="title-en">Quran</span></h1>
+        <span class="headside"><span id="homeNote" class="dim"></span><span class="batt" data-batt hidden></span></span>
       </header>
-      <button id="resume" class="card" hidden>
+      <button id="resume" class="card" data-tip="Carry on where you stopped" hidden>
         <span class="eyebrow">Continue</span>
         <span class="cardline"><span id="resumeName" class="big"></span><span id="resumeArabic" class="ar-name" lang="ar" dir="rtl"></span></span>
         <span id="resumeMeta" class="dim"></span>
@@ -30,17 +31,18 @@
       <div id="picks" class="picks"></div>
       <p id="homeHint" class="hint" hidden>Pick a surah. Follow a reciter word by word, or recite yourself and gild each word as you say it.</p>
       <div class="row3">
-        <button id="allSurahs" class="pill"><span>All surahs</span></button>
-        <button id="homeProgress" class="pill"><span>Progress</span></button>
-        <button id="homeOptions" class="pill"><span>Options</span></button>
+        <button id="allSurahs" class="pill" data-tip="All 114 surahs, in order"><span>All surahs</span></button>
+        <button id="homeProgress" class="pill" data-tip="Ayahs you recited, hints and time"><span>Progress</span></button>
+        <button id="homeOptions" class="pill" data-tip="Reciter, font, effects and more"><span>Options</span></button>
       </div>
+      <p id="tip-home" class="tip" aria-hidden="true"></p>
     </section>
 
     <!-- All 114 surahs. -->
     <section id="list" class="screen" aria-labelledby="listTitle" hidden>
       <header class="head">
         <h2 id="listTitle" tabindex="-1">Surahs</h2>
-        <span class="dim">Swipe left or right to jump ten</span>
+        <span id="tip-list" class="dim headtip" data-default="Swipe left or right to jump ten">Swipe left or right to jump ten</span>
       </header>
       <ol id="surahs" class="surahs"></ol>
     </section>
@@ -49,12 +51,14 @@
     <section id="reader" class="screen reader" aria-label="Recitation" hidden>
       <header class="topline">
         <span id="where" class="where"></span>
-        <span id="who" class="who"><span id="liveDot" class="dot" aria-hidden="true"></span><span id="whoText"></span></span>
+        <span id="who" class="who"><span id="liveDot" class="dot" aria-hidden="true"></span><span id="whoText"></span><span class="batt" data-batt hidden></span></span>
       </header>
-      <div class="rule" aria-hidden="true"></div>
+      <div class="rule" aria-hidden="true"><span class="rule-gem"></span></div>
       <div id="textbox" class="textbox" tabindex="-1" aria-label="Ayah text">
         <p id="ayah" class="ayah" lang="ar" dir="rtl"></p>
+        <span id="comet" class="comet" aria-hidden="true"></span>
       </div>
+      <canvas id="fx" class="fx" aria-hidden="true"></canvas>
       <p id="gloss" class="gloss" aria-live="off"></p>
       <p id="meaning" class="meaning"></p>
       <div class="controls">
@@ -86,7 +90,7 @@
     <section id="progress" class="screen" aria-labelledby="progTitle" hidden>
       <header class="head">
         <h2 id="progTitle" tabindex="-1">Your progress</h2>
-        <span class="dim">Kept on these glasses</span>
+        <span id="tip-progress" class="dim headtip" data-default="Kept on these glasses">Kept on these glasses</span>
       </header>
       <div id="progBody" class="progbody"></div>
       <p class="credit">These are the words and ayahs you marked yourself and the hints you used. They do not judge your recitation or your tajwīd.</p>
@@ -96,7 +100,7 @@
     <section id="options" class="screen" aria-labelledby="optTitle" hidden>
       <header class="head">
         <h2 id="optTitle">Options</h2>
-        <span class="dim">Swipe left or right to change</span>
+        <span id="tip-options" class="dim headtip" data-default="Swipe left or right to change">Swipe left or right to change</span>
       </header>
       <div id="optRows" class="optrows"></div>
       <p class="credit">Text, word timing, word audio and recitation from Quran.com. English is Saheeh International’s translation of the meaning. Gilding follows the recorded timing or your own marks; it does not check tajwīd.</p>
@@ -106,6 +110,7 @@
   </main>
   <audio id="audio" preload="none"></audio>
   <audio id="wordAudio" preload="none"></audio>
+  <audio id="preview" preload="none"></audio>
   <script src="app.js"></script>
 </body>
 </html>
