@@ -1004,6 +1004,24 @@ function loadMqtt() {
   return mqttLoad;
 }
 
+// Retries without signal (Tidal Glass build 17, 2026-10-25: mqtt.js's own 1.5 s reconnect tried every broker
+// about every 2 s for minutes, keeping the glasses' radio busy): 1 s for the first three tries, then doubling to
+// 30 s while nothing is connected; a broker that keeps failing while another carries the link waits up to 10 min.
+function retryDelay(fails, othersUp) {
+  if (othersUp) return Math.min(600000, 1000 * 2 ** Math.min(fails, 10));
+  return fails <= 3 ? 1000 : Math.min(30000, 1000 * 2 ** (fails - 3));
+}
+
+function scheduleRetry(client) {
+  if (client.retryTimer || !voice.links.includes(client) || client.connected) return;
+  client.fails = (client.fails || 0) + 1;
+  client.retryTimer = setTimeout(() => {
+    client.retryTimer = 0;
+    if (!voice.links.includes(client) || client.connected) return;
+    try { client.reconnect(); } catch (e) { scheduleRetry(client); }
+  }, retryDelay(client.fails, voice.links.some((l) => l.connected)));
+}
+
 // Opens the link for the given topics (qv: voice, s: the phone's report, which carries the glasses'
 // battery). Reopens if a new topic is needed.
 async function phoneConnect(subs) {
@@ -1015,9 +1033,12 @@ async function phoneConnect(subs) {
   const add = ({ url, ...extra }) => {
     const client = mqtt.connect(url, {
       clientId: `qgg-${id}-${voice.links.length}`, clean: true, keepalive: 45, protocolVersion: 4,
-      reconnectPeriod: 1500, connectTimeout: 8000, ...extra,
+      reconnectPeriod: 0, connectTimeout: 6000, ...extra,
     });
     client.on('connect', () => {
+      client.fails = 0;
+      clearTimeout(client.retryTimer);
+      client.retryTimer = 0;
       voice.linked = true;
       client.subscribe(voice.subs.map((x) => `bkr/${voice.topic}/${x}`), { qos: 1 });
       const now = Date.now();
@@ -1026,7 +1047,8 @@ async function phoneConnect(subs) {
       phoneFlush();
     });
     client.on('message', (t, payload) => phoneMessage(t.slice(t.lastIndexOf('/') + 1), new TextDecoder().decode(payload)));
-    client.on('error', () => { /* mqtt.js reconnects by itself */ });
+    client.on('close', () => scheduleRetry(client));
+    client.on('error', () => { /* the close that follows schedules the next try */ });
     voice.links.push(client);
   };
   for (const b of BROKERS) add(b);
@@ -1039,7 +1061,7 @@ function phoneDisconnect() {
   voice.links = [];
   voice.subs = [];
   voice.sent = [];
-  for (const l of old) { try { l.end(false); } catch (e) { /* already closed */ } }
+  for (const l of old) { clearTimeout(l.retryTimer); try { l.end(false); } catch (e) { /* already closed */ } }
 }
 
 function phoneFlush() {
