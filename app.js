@@ -1018,7 +1018,10 @@ function scheduleRetry(client) {
   client.retryTimer = setTimeout(() => {
     client.retryTimer = 0;
     if (!voice.links.includes(client) || client.connected) return;
-    try { client.reconnect(); } catch (e) { scheduleRetry(client); }
+    // The same message stores, as mqtt.js's own reconnect: a publish still waiting for its acknowledgement is sent
+    // again and cleared. With fresh stores it stays unacknowledged forever, and end(false) in phoneDisconnect then
+    // never closes this link (found in review, 2026-10-25).
+    try { client.reconnect({ incomingStore: client.incomingStore, outgoingStore: client.outgoingStore }); } catch (e) { scheduleRetry(client); }
   }, retryDelay(client.fails, voice.links.some((l) => l.connected)));
 }
 
