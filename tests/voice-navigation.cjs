@@ -115,7 +115,7 @@ async function run() {
       }
       return (await caches.keys()).sort();
     });
-    assert.deepEqual(keys, ['glass-home-v34', 'quran-glass-v16', 'quran-glass-vendor']);
+    assert.deepEqual(keys, ['glass-home-v34', 'quran-glass-v17', 'quran-glass-vendor']);
     console.log('Passed voice routing, input, saved place, back, silent mode, registration fallback and cache isolation.');
   } finally {
     if (browser) await browser.close();

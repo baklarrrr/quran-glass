@@ -45,7 +45,7 @@ async function run() {
         hidden:{get:()=>window.fakeHidden},
         visibilityState:{get:()=>window.fakeHidden ? 'hidden':'visible'}
       });
-      Object.defineProperty(navigator,'getBattery',{value:()=>Promise.resolve({level:0.64,charging:false,addEventListener(){}})});
+      Object.defineProperty(navigator,'getBattery',{value:undefined});
       window.visibility = hidden => {window.fakeHidden=hidden;document.dispatchEvent(new Event('visibilitychange'));};
       window.clients = [];
       window.sent = [];
@@ -64,7 +64,7 @@ async function run() {
         return Promise.all(window.sent.map(async item=>{
           const bytes=Uint8Array.from(atob(item.body.replace(/-/g,'+').replace(/_/g,'/')),c=>c.charCodeAt(0));
           const plain=await crypto.subtle.decrypt({name:'AES-GCM',iv:bytes.slice(0,12)},aes,bytes.slice(12));
-          return {c:JSON.parse(new TextDecoder().decode(plain)).c,topic:item.topic,qos:item.options.qos};
+          return {...JSON.parse(new TextDecoder().decode(plain)),topic:item.topic,qos:item.options.qos};
         }));
       };
     });
@@ -72,113 +72,91 @@ async function run() {
     await page.goto(base);
     await page.locator('#pick-112').click();
     await page.locator('#ayah [data-p]').first().waitFor();
-    const mic = page.locator('#voice'), choice = page.locator('#androidMicChoice');
+    const mic = page.getByRole('button',{name:'Start Android mic'});
     const commands = () => page.evaluate(()=>window.commands());
-    const consent = async () => {
+    const receiveState = (age = 0, retain = false, wrong = false) => page.evaluate(async ({age,retain,wrong})=>{
+      const payload = await sealForPhone({t:'state',at:Date.now()-age,gb:67});
+      clients.at(-1).message('bkr/' + (wrong?'other':'test-android') + '/s',new TextEncoder().encode(payload),{retain});
+    },{age,retain,wrong});
+    const waitForHello = () => page.waitForFunction(()=>clients.some(c=>c.connected)&&sent.length>0);
+    const start = async () => {
       await mic.click();
-      await page.keyboard.press('ArrowDown');
-      assert.equal(await page.evaluate(()=>document.activeElement.id),'useAndroidMic');
-      await page.keyboard.press('Enter');
+      await waitForHello();
+      await receiveState();
+      await page.waitForFunction(()=>voice.startSent);
     };
-    await mic.click();
-    assert.equal(await choice.isVisible(),true);
-    assert.equal(await page.evaluate(()=>document.activeElement.id),'keepReading');
-    assert.equal(await page.evaluate(()=>window.clients.length),0);
-    if (process.env.QURAN_REVIEW_DIR) {
+    assert.equal(await page.locator('dialog').count(),0);
+    assert.equal(await mic.isVisible(),true);
+    await page.focus('#textbox');
+    await page.keyboard.press('ArrowRight');
+    assert.equal(await page.evaluate(()=>reciteAt),1);
+    await page.locator('#mode').click();
+    assert.equal(await page.locator('#play').isVisible(),true);
+    await page.locator('#mode').click();
+    await page.evaluate(()=>{visibility(true);visibility(false);});
+    assert.equal(await page.evaluate(()=>clients.length),0,'ordinary reading never contacts saved Android');
+    await page.locator('#voice').evaluate(b=>b.click());
+    assert.equal(await page.evaluate(()=>clients.length),0,'synthetic activation cannot start');
+    await page.clock.fastForward(2400);
+    const labelFits=await mic.evaluate(b=>{const outer=b.getBoundingClientRect(), inner=b.firstElementChild.getBoundingClientRect();return inner.top>=outer.top&&inner.bottom<=outer.bottom;});
+    assert.equal(labelFits,true,'visible Android mic label fits inside the button');
+    if(process.env.QURAN_REVIEW_DIR){
       await fs.mkdir(process.env.QURAN_REVIEW_DIR,{recursive:true});
-      await page.screenshot({path:path.join(process.env.QURAN_REVIEW_DIR,'android-mic-choice.png')});
+      await page.screenshot({path:path.join(process.env.QURAN_REVIEW_DIR,'direct-reader.png')});
     }
-    await page.keyboard.press('Enter'); // default choice only returns to reading
-    await mic.click(); await page.keyboard.press('Escape');
-    await mic.click(); await page.clock.fastForward(31000);
-    assert.equal(await choice.isVisible(),false);
-    await mic.click(); await page.evaluate(()=>visibility(true));
-    assert.equal(await choice.isVisible(),false);
-    await page.evaluate(()=>{visibility(false);return phoneSend('qStart');});
-    assert.deepEqual(await commands(),[]);
-
-    // Pair changed while the chooser was open. The old button can no longer authorize it.
-    await mic.click();
+    await mic.click(); await waitForHello();
+    await receiveState(0,true); await receiveState(60000); await receiveState(0,false,true);
+    assert((await commands()).every(i=>i.c==='hello'),'no start without matching live state');
+    await page.locator('#voice').click();
+    assert((await commands()).every(i=>i.c==='hello'),'cancel before proof sends no stop');
+    await page.evaluate(()=>{autoConnect=false; sent.length=0;});
+    await mic.click();await page.waitForFunction(()=>voice.outbox.length>0);await page.locator('#voice').click();
+    await page.evaluate(()=>clients.forEach(c=>c.connect()));assert.deepEqual(await commands(),[]);
+    await page.evaluate(()=>{autoConnect=true;});
+    // A canceled encrypted start cannot publish later, even after the page returns.
     await page.evaluate(()=>{
-      const pair=JSON.parse(localStorage.getItem('tg.pair'));pair.t='other';localStorage.setItem('tg.pair',JSON.stringify(pair));
+      window.originalSeal=sealForPhone;
+      sealForPhone=async obj=>{const sealed=await originalSeal(obj);if(obj.c==='qStart')await new Promise(r=>window.unblock=r);return sealed;};
     });
-    await page.locator('#useAndroidMic').click();
-    assert.deepEqual(await commands(),[]);
-    await page.evaluate(()=>{const pair=JSON.parse(localStorage.getItem('tg.pair'));pair.t='test-android';localStorage.setItem('tg.pair',JSON.stringify(pair));});
-
-    console.log('Chooser, cancel and pairing changes passed');
-    // Cancel while the first sealed start is still waiting for a broker.
-    await page.evaluate(()=>{window.autoConnect=false;});
-    await consent();
-    await page.waitForFunction(()=>voice.outbox.length>0);
-    await mic.click();
-    await page.evaluate(()=>clients.forEach(c=>c.connect()));
-    assert.deepEqual(await commands(),[]);
-
-    console.log('Cancel before a broker connects passed');
-    // The queued encryption must not outlive the consent that began it.
-    await page.evaluate(()=>{
-      window.autoConnect=true;
-      window.originalSeal = sealForPhone;
-      sealForPhone = async obj=>{
-        const sealed=await originalSeal(obj);
-        if(obj.c==='qStart')await new Promise(resolve=>{window.unblockSeal=resolve;});
-        return sealed;
-      };
-    });
-    await consent();
-    await page.waitForFunction(()=>typeof window.unblockSeal==='function');
-    await page.evaluate(()=>{visibility(true);window.unblockSeal();sealForPhone=window.originalSeal;});
-    await page.evaluate(()=>visibility(false));
-    assert.deepEqual(await commands(),[]);
-
-    console.log('Cancellation during encryption passed');
-    // A fresh foreground confirmation is the only path to a microphone start.
-    await consent();
-    await page.waitForFunction(()=>voice.startSent);
-    let history = await commands();
-    assert(history.length>0 && history.every(i=>i.c==='qStart' && i.topic==='bkr/test-android/c' && i.qos===0));
-    const stateAfterRetained = await page.evaluate(async()=>{
-      const payload = await sealForPhone({t:'qv',s:112,st:'listening',re:voice.startTs});
-      const latest = clients.at(-1);
-      latest.message('bkr/test-android/qv',new TextEncoder().encode(payload),{retain:true});
-      return voice.st;
-    });
-    assert.equal(stateAfterRetained,'asking');
-    await page.evaluate(async()=>{
-      const payload = await sealForPhone({t:'qv',s:112,st:'listening',re:voice.startTs});
-      clients.at(-1).message('bkr/test-android/qv',new TextEncoder().encode(payload),{retain:false});
-    });
-    await page.waitForFunction(()=>voice.st==='listening');
+    await mic.click();await waitForHello();await receiveState();await page.waitForFunction(()=>typeof window.unblock==='function');
+    await page.evaluate(()=>{visibility(true);window.unblock();sealForPhone=originalSeal;visibility(false);});
+    assert((await commands()).every(i=>i.c==='hello'));
+    await start();
+    assert((await commands()).every(i=>i.topic==='bkr/test-android/c' && i.qos===0));
+    const signal = (retain,micName) => page.evaluate(async ({retain,micName})=>{
+      const payload=await sealForPhone({t:'qv',s:112,st:'listening',mic:micName,re:voice.startTs});
+      clients.at(-1).message('bkr/test-android/qv',new TextEncoder().encode(payload),{retain});
+    },{retain,micName});
+    await signal(true,'phone');assert.equal(await page.evaluate(()=>voice.st),'asking');
+    await signal(false,'glasses');await page.waitForFunction(()=>voice.st==='listening');
+    assert.equal(await page.locator('#voice').getAttribute('aria-label'),'Stop Android mic');
     await page.evaluate(()=>visibility(true));
-    await page.waitForFunction(async()=>(await commands()).some(i=>i.c==='qStop'));
-    const stoppedAt = (await commands()).length;
+    await page.waitForFunction(()=>!voice.grant&&!voice.on);
     await page.evaluate(()=>{clients.forEach(c=>c.connect());visibility(false);});
     await page.clock.fastForward(45000);
-    assert.equal((await commands()).length,stoppedAt);
-    assert.equal(await page.evaluate(()=>Boolean(voice.grant) || voice.on || Boolean(voice.retryTimer)),false);
-    await mic.click(); await page.keyboard.press('Escape');
-    assert.equal((await commands()).length,stoppedAt);
-
-    console.log('Hidden session and stale broker passed');
-    // Foreground timeout clears start, retries, cached messages, and authority.
-    await consent();
-    await page.waitForFunction(()=>voice.startSent);
-    await page.clock.fastForward(21000);
-    await page.waitForFunction(()=>!voice.on && !voice.grant);
-    assert.equal(await page.evaluate(()=>voice.outbox.length + voice.sent.length + voice.retryTimer + voice.aliveTimer),0);
-    // An active target change must stop only the old confirmed Android session.
-    await consent();
-    await page.waitForFunction(()=>voice.startSent);
-    await page.evaluate(()=>{
-      const pair=JSON.parse(localStorage.getItem('tg.pair'));pair.t='new-target';
-      localStorage.setItem('tg.pair',JSON.stringify(pair));
-      window.dispatchEvent(new StorageEvent('storage',{key:'tg.pair'}));
+    assert((await commands()).some(i=>i.c==='qStop'&&i.only==='voice'));
+    assert.equal(await page.evaluate(()=>Boolean(voice.retryTimer)||Boolean(voice.aliveTimer)),false);
+    await start();await page.clock.fastForward(21000);
+    await page.waitForFunction(()=>!voice.grant&&!voice.on);
+    await start();await page.evaluate(()=>{
+      const pair=JSON.parse(localStorage.getItem('tg.pair'));pair.t='replaced-target';
+      localStorage.setItem('tg.pair',JSON.stringify(pair));dispatchEvent(new StorageEvent('storage',{key:'tg.pair'}));
     });
-    await page.waitForFunction(()=>!voice.grant && !voice.on && !voice.links.length);
+    await page.waitForFunction(()=>!voice.grant&&!voice.on&&!voice.links.length);
     assert((await commands()).every(i=>i.topic==='bkr/test-android/c'));
+    await page.evaluate(()=>{localStorage.removeItem('tg.pair');});
+    await page.reload();await page.click('#pick-112');await page.locator('#ayah [data-p]').first().waitFor();
+    await page.evaluate(()=>{localStorage.removeItem('tg.pair');applyMode();});
+    assert.equal(await page.locator('#voice').isVisible(),false);
+    await page.goto(base);
+    await page.evaluate(url=>{const frame=document.createElement('iframe');frame.src=url;document.body.append(frame);},base+'/index.html');
+    const embedded=page.frameLocator('iframe');
+    await embedded.locator('#pick-112').click();
+    await embedded.locator('#ayah [data-p]').first().waitFor();
+    assert.equal(await embedded.locator('#voice').isVisible(),false,'no mic in an embedded reader');
+    assert.equal(await embedded.locator('#reader').evaluate(()=>clients.length),0);
     assert.deepEqual(errors,[]);
-    console.log('PASS old pairing, deliberate Android confirmation, cancel/default/Back, target mismatch, hidden, expired choice, pre-publish cancel, delayed encryption, late broker, idle timeout and stop-only-after-start.');
+    console.log('PASS no modal, silent startup/resume with saved keys, manual and reciter paths, one-action Android mic, fake event denied, signed fresh response required, wrong/retained/stale rejected, delayed encryption, hide, timeout and voice-only stop.');
   } finally {
     if(browser)await browser.close();
     await new Promise(resolve=>server.close(resolve));

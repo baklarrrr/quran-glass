@@ -325,9 +325,6 @@ button:focus .ar-name { background: var(--gilt); -webkit-background-clip: text; 
 .arabic-source button { margin-inline-start: .55em; padding: .38em .75em; border: 1px solid var(--dim); border-radius: 999px; font: inherit; color: var(--ink); }
 .arabic-source button:focus-visible, .arabic-source a:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
 
-#androidMicChoice { margin: auto; width: min(86vw, 460px); max-height: 90vh; padding: 28px; border: 1px solid var(--dim); border-radius: 20px; background: #090909; color: var(--ink); }
-#androidMicChoice[open] { display: grid; gap: 16px; }
-#androidMicChoice h2 { font-size: 25px; line-height: 1.2; }
-#androidMicChoice p { color: var(--dim); font-size: 18px; line-height: 1.4; }
-#androidMicChoice .pill { width: 100%; min-height: 48px; text-align: center; }
-#androidMicChoice::backdrop { background: #000; }
+
+
+.controls .android-mic { flex: 0 0 108px; min-height: 56px; padding: 2px 4px; font-size: 17px; line-height: 1.1; }

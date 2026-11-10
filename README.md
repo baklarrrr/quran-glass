@@ -5,7 +5,7 @@ A Quran reader for Meta Ray-Ban Display glasses (a Meta web app, 600×600, Neura
 - **Follow the reciter:** a recitation plays and each word turns gold as it is recited, with its meaning
   underneath.
 - **Recite myself:** the wearer recites and each word turns gold as it is said, either by a pinch per word or,
-  with the linked Android Tidal Glass app, by explicitly choosing **Start Android listening**. The Android app may use the glasses or handset microphone. iPhone users can mark each word manually or play the reciter through the web reader.
+  with the linked Android Tidal Glass app, by pressing **Start Android mic**. The Android app may use the glasses or handset microphone. iPhone users can mark each word manually or play the reciter through the web reader.
 
 When WebMCP is enabled on the glasses, open Quran and say “Hey Meta, open surah 112.”
 The command selects the same surah as a pinch and leaves playback off. It works from Home,
@@ -55,10 +55,9 @@ tajwīd. A word the phone heard but could not make out is gilded in a fainter go
 
 ## Privacy: Follow my voice
 
-Each attempt needs a fresh, explicit Android confirmation. Closing or hiding the reader ends that
+Reading, pinching words and playing a reciter open directly. Each Android listening attempt requires pressing **Start Android mic**. A fresh encrypted state from that Android companion must arrive before the microphone command is sent. Closing or hiding the reader ends that
 grant. The web reader plays recitations in its own audio element. It sends no Android play, pause or
-seek command. The existing Android protocol shares its stop command with the Android Quran player,
-so ending a confirmed listening request can also stop Quran playback on that phone. Canceling an
+seek command. The reader requests a voice-only stop when it ends a listening session. The current Android companion supports this scope; older builds may handle a stop differently. Canceling an
 unstarted session sends no stop. If the phone is disconnected, it relies on its own keepalive timeout.
 
 While Follow my voice is on, the glasses and the phone exchange short messages through public MQTT
@@ -66,7 +65,5 @@ brokers, all three at once: broker.emqx.io, broker.hivemq.com and public.cloud.s
 glasses send where to follow from (again when the wearer moves), a check-in every 20 seconds and a stop;
 the phone sends its status, the loudness it hears and the positions of the words it heard. Each message
 is sealed with AES-GCM using the pairing key that Tidal Glass stored on these glasses, so the brokers
-relay ciphertext. They can still see the topic name and when messages pass. When the browser cannot read
-the glasses' battery, the glasses also open the same links for a few seconds at launch and on return, to
-fetch the phone's sealed status report, which carries it. This web app records no audio. What the phone
+relay ciphertext. They can still see the topic name and when messages pass. While Android voice following is active, its status can also supply the glasses’ battery. This web app records no audio. What the phone
 app does with the microphone audio has not been independently verified.

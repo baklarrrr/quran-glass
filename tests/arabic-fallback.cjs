@@ -32,6 +32,17 @@ async function run() {
     await page.route('**/*', async route => {
       const url = new URL(route.request().url());
       if (url.origin === base) {
+        if (url.pathname === '/test-audio') {
+          // A real local audio fixture prevents the can-play check racing a 404/media error.
+          const pcm = Buffer.alloc(44 + 1600);
+          pcm.write('RIFF'); pcm.writeUInt32LE(pcm.length - 8, 4);
+          pcm.write('WAVEfmt ', 8); pcm.writeUInt32LE(16, 16);
+          pcm.writeUInt16LE(1, 20); pcm.writeUInt16LE(1, 22);
+          pcm.writeUInt32LE(8000, 24); pcm.writeUInt32LE(16000, 28);
+          pcm.writeUInt16LE(2, 32); pcm.writeUInt16LE(16, 34);
+          pcm.write('data', 36); pcm.writeUInt32LE(1600, 40);
+          return route.fulfill({contentType:'audio/wav',body:pcm});
+        }
         if (url.pathname.startsWith('/tanzil/')) files.push(url.pathname);
         return route.continue();
       }

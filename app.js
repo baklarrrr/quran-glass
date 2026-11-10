@@ -458,7 +458,7 @@ function render(next) {
   if (sc !== 'options') { stopPreview(true); disarmReset(); }
   if (sc !== 'reader') stopEffects();
   // Listening belongs to the reader; Options on top keeps it (the reader is still underneath).
-  if (sc !== 'reader') { closeMicChoice(); voiceStop(); voiceForget(); }
+  if (sc !== 'reader') { voiceStop(); voiceForget(); }
   clearTips();
   for (const id of ['home', 'list', 'reader', 'progress', 'options']) $(id).hidden = id !== sc;
   if (sc === 'home') renderHome();
@@ -503,7 +503,7 @@ function registerVoiceNavigation() {
           return JSON.stringify({ error: true, next_action: 'Ask for a surah number from 1 to 114.' });
         }
         if (document.hidden || !['home', 'list', 'reader'].includes(view.screen) ||
-            playing || wantPlay || voice.on || $('androidMicChoice').open) {
+            playing || wantPlay || voice.on) {
           return JSON.stringify({ error: true, next_action: 'Ask the wearer to return to the surah list with playback and voice following stopped, then retry.' });
         }
         if (chapter(ch)?.id !== ch) {
@@ -1047,8 +1047,7 @@ function playWord(w) {
 // heard, and they turn gold here as if pinched. The link is the phone's own: Tidal Glass keeps its
 // pairing on these glasses for this same site, and the messages travel sealed (AES-GCM) through public
 // brokers. The links are open while Follow my voice is on, from the press until it stops or gives up,
-// and for a few seconds at launch and on return when this browser cannot read the glasses' battery:
-// the phone's report carries it (peekPhoneBattery). Pinches keep working alongside; the phone only
+// including the initial read-only check for a live Android response. Pinches keep working alongside; the phone only
 // moves the gold forward.
 
 // All three open together, shiftr.io's on port 443 included: it used to wait 5 s as a spare, but on
@@ -1075,7 +1074,7 @@ const VOICE_WHY = {
   model: ['Voice model didn’t load', 'The voice model did not load on your phone'],
 };
 const voice = {
-  grant: null, choice: null, choiceTimer: 0, connectionId: 0, startSent: false,
+  grant: null, connectionId: 0, startSent: false, ready: false,
   on: false, st: '', why: '', mic: '', pct: 0, mb: 0,
   askedAt: 0,            // when this listening was asked for
   heardAt: 0,            // the phone's latest message
@@ -1083,10 +1082,9 @@ const voice = {
   startTs: 0,            // the time stamp on the latest qStart; the phone's answers echo it (re)
   note: '',              // why listening stopped, short, on the top line until the next press
   offer: null,           // { mb }: the phone needs Wi-Fi for its model; the microphone button can use mobile data
-  report: '',            // the phone's last sealed report (battery), as the brokers keep it
   toast: '',             // the message last shown for a reason, so it can go with it
   unclear: new Set(),    // `${ayah}:${word}` the phone heard but could not make out
-  linkPair: null, links: [], subs: [], key: null, topic: '', outbox: [], sent: [], recent: [], moving: false, peekTimer: 0,
+  linkPair: null, links: [], subs: [], key: null, topic: '', outbox: [], sent: [], recent: [], moving: false,
   aliveTimer: 0,         // tells the phone every 20 s that the glasses are still here (else it stops by itself)
   quietTimer: 0,         // gives up when the phone stays silent (VOICE_QUIET)
   startItem: null,         // the sealed start, sent again unchanged until the phone answers
@@ -1131,49 +1129,22 @@ function samePair(a, b) {
 }
 
 function mayListen(grant) {
-  return Boolean(grant && voice.grant === grant && voice.on && !document.hidden &&
-    view.screen === 'reader' && reciting() && !currentVerse()?.tanzil &&
+  return Boolean(grant && voice.grant === grant && voice.on && !document.hidden && window.top === window.self &&
+    view.screen === 'reader' && reciting() && currentVerse() && !currentVerse().tanzil &&
     samePair(grant, phonePairing(false)));
 }
 
-function closeMicChoice() {
-  clearTimeout(voice.choiceTimer);
-  voice.choiceTimer = 0;
-  voice.choice = null;
-  const choice = $('androidMicChoice');
-  if (choice.open) choice.close();
-}
-
-function openMicChoice() {
-  if (document.hidden || view.screen !== 'reader' || !reciting() || !currentVerse() || currentVerse().tanzil) return;
+function startAndroidMic(event) {
+  if (!event.isTrusted || window.top !== window.self || document.hidden ||
+      view.screen !== 'reader' || !reciting() || !currentVerse() || currentVerse().tanzil) return;
   const pair = phonePairing();
-  if (!pair) {
-    voiceReason('Android not linked', 'On iPhone, pinch each word or play the reciter. Voice following needs the linked Android Tidal Glass app.');
-    return;
-  }
-  closeMicChoice();
-  voice.choice = {pair, ch: cur.ch, metered: Boolean(voice.offer)};
-  $('androidDataNote').hidden = !voice.offer;
-  $('androidDataNote').textContent = voice.offer ? `Starting allows the Android model download over mobile data${offerSize()}.` : '';
-  $('androidMicChoice').showModal();
-  $('keepReading').focus();
-  voice.choiceTimer = setTimeout(closeMicChoice, 30000);
-}
-
-function confirmMicChoice() {
-  const choice = voice.choice;
-  const valid = $('androidMicChoice').open && choice && !document.hidden && view.screen === 'reader' &&
-    cur?.ch === choice.ch && reciting() && currentVerse() && !currentVerse().tanzil &&
-    samePair(choice.pair, phonePairing(false));
-  closeMicChoice();
-  if (!valid) return;
-  // New object identity on every explicit confirmation. Never persist this grant.
-  voice.grant = choice.pair;
-  voiceStart(choice.metered, choice.pair);
+  if (!pair) return;
+  const grant = { ...pair, metered: Boolean(voice.offer) };
+  voice.grant = grant;
+  voiceStart(grant);
 }
 
 function revokeMic() {
-  closeMicChoice();
   voiceStop();
   voiceForget();
 }
@@ -1232,7 +1203,7 @@ function scheduleRetry(client) {
 
 // Opens the link for the given topics (qv: voice, s: the phone's report, which carries the glasses'
 // battery). Reopens if a new topic is needed.
-async function phoneConnect(subs, grant = null) {
+async function phoneConnect(subs, grant) {
   const pair = phonePairing(false);
   if (!pair || !window.crypto?.subtle) return false;
   if (voice.links.length && samePair(pair, voice.linkPair) && subs.every(x => voice.subs.includes(x))) return true;
@@ -1269,7 +1240,7 @@ async function phoneConnect(subs, grant = null) {
     });
     client.on('message', (t, payload, packet) => {
       const sub = t.slice(t.lastIndexOf('/') + 1);
-      if (connectionId === voice.connectionId && !(sub === 'qv' && packet?.retain)) {
+      if (connectionId === voice.connectionId && !packet?.retain && t === `bkr/${pair.t}/${sub}` && voice.subs.includes(sub)) {
         phoneMessage(sub, new TextDecoder().decode(payload), connectionId);
       }
     });
@@ -1284,7 +1255,6 @@ async function phoneConnect(subs, grant = null) {
 function phoneDisconnect() {
   voice.connectionId++;
   voice.outbox = [];
-  clearTimeout(voice.peekTimer);
   const old = voice.links;
   voice.links = [];
   voice.subs = [];
@@ -1293,7 +1263,7 @@ function phoneDisconnect() {
 }
 
 function publishVoiceItem(client, item) {
-  if (!client.connected || !mayListen(item.grant)) return;
+  if (!client.connected || !mayListen(item.grant) || (item.command !== 'hello' && !voice.ready)) return;
   client.publish(`bkr/${item.grant.t}/c`, item.body, {qos: 0, retain: false});
   if (item.command === 'qStart') voice.startSent = true;
 }
@@ -1315,7 +1285,7 @@ function phoneFlush() {
 // false: a stop delivered late could end the next start.
 async function phoneSend(c, extra = {}) {
   const grant = voice.grant;
-  if (!mayListen(grant) || !voice.key || !samePair(grant, voice.linkPair)) return;
+  if (!mayListen(grant) || !voice.key || !samePair(grant, voice.linkPair) || (c !== 'hello' && !voice.ready)) return;
   const ts = Date.now();
   if (c === 'qStart') voice.startTs = ts;
   const body = await sealForPhone({c, ts, ...extra});
@@ -1330,9 +1300,6 @@ async function phoneSend(c, extra = {}) {
 }
 
 async function phoneMessage(sub, text, connectionId = voice.connectionId) {
-  // The phone's report stays on the brokers, so a return to view gets the same one again: it has still
-  // arrived, and links that came only for it close.
-  if (sub === 's' && text === voice.report) { if (!voice.on && voice.subs.length === 1) phoneDisconnect(); return; }
   if (voice.recent.includes(text)) return; // the same message from the other broker
   voice.recent.push(text);
   if (voice.recent.length > 16) voice.recent.shift();
@@ -1340,10 +1307,14 @@ async function phoneMessage(sub, text, connectionId = voice.connectionId) {
   try { m = await openFromPhone(text); } catch (e) { return; }
   if (connectionId !== voice.connectionId || document.hidden) return;
   if (sub === 's') {
-    voice.report = text;
-    // The phone's report of the glasses' battery, for when this browser cannot read it.
+    const grant = voice.grant;
+    if (!mayListen(grant) || m.t !== 'state' || !Number.isFinite(m.at) ||
+        m.at < voice.askedAt - 1000 || Math.abs(Date.now() - m.at) > 10000) return;
     if (!batteryKnown && Number.isFinite(m.gb)) drawBattery(m.gb / 100, !!m.gc);
-    if (!voice.on && voice.subs.length === 1) phoneDisconnect(); // the links came only for this report
+    if (!voice.ready) {
+      voice.ready = true;
+      phoneSend('qStart', {s: cur.ch, a: cur.v, w: reciteAt, ...(grant.metered ? {metered: true} : {})});
+    }
     return;
   }
   if (m.t !== 'qv' || !mayListen(voice.grant) || !voice.startSent || !cur || m.s !== cur.ch) return;
@@ -1363,7 +1334,7 @@ async function phoneMessage(sub, text, connectionId = voice.connectionId) {
   if (m.ca) voiceSaying(m.ca);
 }
 
-async function voiceStart(metered, grant) {
+async function voiceStart(grant) {
   if (!grant || voice.grant !== grant || document.hidden || !cur || !currentVerse() || currentVerse().tanzil) return;
   voice.offer = null;
   voice.note = '';
@@ -1377,6 +1348,7 @@ async function voiceStart(metered, grant) {
   voice.outbox = []; // nothing left from an earlier try goes out with this one
   drawVoice();
   if ($('tip').classList.contains('on')) showTip(document.activeElement); // the button's new name
+  voice.ready = false;
   voice.startSent = false;
   voiceWatch();
   if (!(await phoneConnect(['qv', 's'], grant))) {
@@ -1389,7 +1361,7 @@ async function voiceStart(metered, grant) {
   if (!mayListen(grant)) return;
   voice.linked = voice.links.some((l) => l.connected);
   voice.startItem = null;
-  phoneSend('qStart', { s: cur.ch, a: cur.v, w: reciteAt, ...(metered ? { metered: true } : {}) }); // from the word he is on
+  phoneSend('hello'); // A fresh encrypted, non-retained Android state must arrive before qStart.
   // Until the phone answers, the same start goes out again every 4 s: the phone ignores one it already
   // has, and starts if it was off the broker for a moment when the first passed (2026-10-25: from home
   // only one broker could be reached, and the phone dropped off it now and then).
@@ -1414,7 +1386,7 @@ function voiceStop() {
   // confirmed session if that session actually transmitted a start.
   const links = voice.links.filter(l => l.connected);
   const stop = grant && voice.startSent && links.length
-    ? sealForPhone({c: 'qStop', ts: Date.now()}).catch(() => null) : null;
+    ? sealForPhone({c: 'qStop', only: 'voice', ts: Date.now()}).catch(() => null) : null;
   const connectionId = voice.connectionId;
   voiceEnd(false);
   if (!stop) { phoneDisconnect(); return; }
@@ -1431,6 +1403,7 @@ function voiceStop() {
 // links close, so nothing keeps reconnecting in the background.
 function voiceEnd(close = true) {
   voice.grant = null;
+  voice.ready = false;
   voice.startSent = false;
   voice.startItem = null;
   voice.outbox = [];
@@ -1562,15 +1535,15 @@ function voiceLine() {
   if (voice.st === 'asking') return Date.now() - voice.askedAt > 8000 ? 'Android not answering' : 'Asking Android…';
   if (voice.st === 'loading') return 'Getting ready…';
   if (voice.st === 'model') return `Voice model ${voice.pct}%`;
-  if (voice.st === 'listening') return 'Listening';
+  if (voice.st === 'listening') return voice.mic === 'glasses' ? 'Glasses mic' : voice.mic === 'phone' ? 'Android mic' : 'Listening';
   return '';
 }
 
 // The button's one name in each state, used by its label and its tip alike.
 function voiceName() {
-  if (voice.on) return 'Stop listening';
+  if (voice.on) return voice.st === 'asking' ? 'Cancel mic' : 'Stop Android mic';
   if (voice.offer) return `Use mobile data${offerSize()}`;
-  return 'Choose Android voice following';
+  return 'Start Android mic';
 }
 
 function drawVoice() {
@@ -1580,6 +1553,7 @@ function drawVoice() {
   b.classList.toggle('on', voice.on && voice.st === 'listening');
   b.setAttribute('aria-pressed', voice.on ? 'true' : 'false');
   b.setAttribute('aria-label', voiceName());
+  $('voiceLabel').textContent = voiceName();
   if (!voice.on) $('liveDot').style.opacity = '';
   drawTop();
   refreshTip();
@@ -1644,15 +1618,6 @@ function reciteTo(n) {
   savePos();
   drawTop();
   keepInView();
-}
-
-// The glasses' battery as the phone reports it (5% steps), for when this browser cannot read it: at
-// launch and on return, links open only to fetch that report. The phone keeps it on the brokers, so
-// it comes at once, and the links close as it arrives (phoneMessage), or after 8 s if none comes.
-async function peekPhoneBattery() {
-  if (voice.on || voice.links.length || !phonePairing()) return;
-  if (!(await phoneConnect(['s']))) return;
-  voice.peekTimer = setTimeout(() => { if (!voice.on && voice.subs.length === 1) phoneDisconnect(); }, 8000);
 }
 
 // ---- look: Arabic font and effects ---------------------------------------------------------------
@@ -1805,9 +1770,9 @@ function applyMode() {
   $('play').hidden = r;
   const arabicOnly = Boolean(currentVerse()?.tanzil);
   $('hint').hidden = !r || arabicOnly;
-  $('voice').hidden = !r || arabicOnly;
+  $('voice').hidden = !r || arabicOnly || !currentVerse() || window.top !== window.self || !phonePairing(false);
   $('mode').hidden = arabicOnly;
-  if (!r || arabicOnly) { closeMicChoice(); voiceStop(); voiceForget(); }
+  if (!r || arabicOnly) { voiceStop(); voiceForget(); }
   $('textbox').tabIndex = r ? 0 : -1;
   shown($('modeListen'), !r);
   shown($('modeRecite'), r);
@@ -2017,7 +1982,7 @@ const TIPS = {
   hint: () => (settings.memorise ? 'Hint: first letter, then the word, then hear it' : 'Hint: the next word’s reading, then hear it'),
   voice: () => (voice.on ? voiceName()
     : voice.offer ? `${voiceName()} · any other pinch cancels`
-      : 'Android voice following · choose whether to start listening'),
+      : 'Start voice following using your paired Android phone'),
   nextAyah: () => 'Next ayah',
   mode: () => (reciting() ? 'Reciting yourself · pinch to follow the reciter' : 'Following the reciter · pinch to recite yourself'),
   readerOptions: () => 'Reciter, font, effects and more',
@@ -2502,21 +2467,20 @@ let batteryKnown = false;
 let batteryTier = '';  // '' | 'calm' (under 30%) | 'off' (under 15%), only while not charging
 
 function watchBattery() {
-  if (!navigator.getBattery) { peekPhoneBattery(); return; }
+  if (!navigator.getBattery) return;
   navigator.getBattery().then((b) => {
     const draw = () => {
       const unknown = b.level === 1 && b.charging && b.chargingTime === 0 && b.dischargingTime === Infinity;
       batteryKnown = !unknown;
       if (unknown) {
         for (const el of document.querySelectorAll('[data-batt]')) el.hidden = true;
-        peekPhoneBattery();
         return;
       }
       drawBattery(b.level, b.charging);
     };
     draw();
     for (const ev of ['levelchange', 'chargingchange', 'chargingtimechange', 'dischargingtimechange']) b.addEventListener(ev, draw);
-  }).catch(() => peekPhoneBattery());
+  }).catch(() => {});
 }
 
 function drawBattery(level, charging) {
@@ -2554,23 +2518,9 @@ function wire() {
   $('readerOptions').addEventListener('click', () => openFrom('readerOptions', { screen: 'options' }));
   $('play').addEventListener('click', () => (playing ? pause() : play()));
   $('hint').addEventListener('click', hint);
-  $('keepReading').addEventListener('click', closeMicChoice);
-  $('useAndroidMic').addEventListener('click', confirmMicChoice);
-  $('androidMicChoice').addEventListener('cancel', e => { e.preventDefault(); closeMicChoice(); });
-  $('androidMicChoice').addEventListener('keydown', e => {
-    if (e.key === 'Escape' || e.key === 'Backspace') {
-      e.preventDefault();
-      e.stopPropagation();
-      closeMicChoice();
-      return;
-    }
-    if (!['ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.key)) return;
-    e.preventDefault();
-    (e.key === 'ArrowDown' || e.key === 'ArrowRight' ? $('useAndroidMic') : $('keepReading')).focus();
-  });
-  $('voice').addEventListener('click', () => {
+  $('voice').addEventListener('click', event => {
     if (voice.on) voiceStop();
-    else openMicChoice();
+    else startAndroidMic(event);
   });
   // The next press anywhere clears a stop reason from the top line (and elsewhere, a mobile-data offer).
   document.addEventListener('keydown', (e) => { if (e.key === 'Enter') voicePress(e); }, true);
@@ -2654,14 +2604,15 @@ function wire() {
     if (e.key === 'Escape' && view.screen !== 'home') { e.preventDefault(); history.back(); }
   });
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') { if (playing) loop(); if (!batteryKnown) peekPhoneBattery(); return; }
+    if (document.visibilityState === 'visible') { if (playing) loop(); return; }
     stopPreview();
     stopEffects();
     revokeMic(); // Do not carry the previous foreground visit's authority through sleep.
   });
   window.addEventListener('pagehide', revokeMic);
-  window.addEventListener('hashchange', revokeMic);
-  window.addEventListener('storage', e => { if (e.key === null || e.key === 'tg.pair') revokeMic(); });
+  const refreshMicTarget = () => { revokeMic(); if (view.screen === 'reader') applyMode(); };
+  window.addEventListener('hashchange', refreshMicTarget);
+  window.addEventListener('storage', e => { if (e.key === null || e.key === 'tg.pair') refreshMicTarget(); });
   window.addEventListener('popstate', onPopState);
 }
 
