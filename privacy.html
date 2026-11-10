@@ -38,7 +38,7 @@
         audio host (text, meanings, word audio and timing), QuranicAudio (recitations) and, for reciters marked
         “aligned”, mp3quran.net (recitations) and Bakar Studio's timing files on GitHub Pages.</li>
       <li>If Meta AI voice navigation is enabled, Meta AI handles your spoken request. Quran Glass receives a surah number and returns that number with a status or an error. It does not send the verse text, reading history or progress to Meta AI.</li>
-      <li>Follow my voice (optional, with the Tidal Glass phone app): the glasses and your phone exchange short
+      <li>Voice following starts only after you choose the paired Android companion in the reader. Android may select its own microphone or the glasses microphone. Leaving the reader ends this permission. The glasses and the Android companion exchange short
         messages through public MQTT brokers (broker.emqx.io, broker.hivemq.com and
         public.cloud.shiftr.io). Each message is sealed with a key known only to your glasses and phone, so the
         brokers carry unreadable data; they can see when messages pass. This web app records no audio.</li>

@@ -458,7 +458,7 @@ function render(next) {
   if (sc !== 'options') { stopPreview(true); disarmReset(); }
   if (sc !== 'reader') stopEffects();
   // Listening belongs to the reader; Options on top keeps it (the reader is still underneath).
-  if (sc !== 'reader' && sc !== 'options') { voiceStop(); voiceForget(); }
+  if (sc !== 'reader') { closeMicChoice(); voiceStop(); voiceForget(); }
   clearTips();
   for (const id of ['home', 'list', 'reader', 'progress', 'options']) $(id).hidden = id !== sc;
   if (sc === 'home') renderHome();
@@ -469,6 +469,7 @@ function render(next) {
 }
 
 function onPopState(e) {
+  revokeMic();
   depth = Math.max(0, depth - 1);
   render(e.state || { screen: 'home' });
 }
@@ -502,7 +503,7 @@ function registerVoiceNavigation() {
           return JSON.stringify({ error: true, next_action: 'Ask for a surah number from 1 to 114.' });
         }
         if (document.hidden || !['home', 'list', 'reader'].includes(view.screen) ||
-            playing || wantPlay || voice.on) {
+            playing || wantPlay || voice.on || $('androidMicChoice').open) {
           return JSON.stringify({ error: true, next_action: 'Ask the wearer to return to the surah list with playback and voice following stopped, then retry.' });
         }
         if (chapter(ch)?.id !== ch) {
@@ -1074,6 +1075,7 @@ const VOICE_WHY = {
   model: ['Voice model didn’t load', 'The voice model did not load on your phone'],
 };
 const voice = {
+  grant: null, choice: null, choiceTimer: 0, connectionId: 0, startSent: false,
   on: false, st: '', why: '', mic: '', pct: 0, mb: 0,
   askedAt: 0,            // when this listening was asked for
   heardAt: 0,            // the phone's latest message
@@ -1084,23 +1086,23 @@ const voice = {
   report: '',            // the phone's last sealed report (battery), as the brokers keep it
   toast: '',             // the message last shown for a reason, so it can go with it
   unclear: new Set(),    // `${ayah}:${word}` the phone heard but could not make out
-  links: [], subs: [], key: null, topic: '', outbox: [], sent: [], recent: [], moving: false, peekTimer: 0,
+  linkPair: null, links: [], subs: [], key: null, topic: '', outbox: [], sent: [], recent: [], moving: false, peekTimer: 0,
   aliveTimer: 0,         // tells the phone every 20 s that the glasses are still here (else it stops by itself)
   quietTimer: 0,         // gives up when the phone stays silent (VOICE_QUIET)
-  startBody: '',         // the sealed start, sent again unchanged until the phone answers
+  startItem: null,         // the sealed start, sent again unchanged until the phone answers
   retryTimer: 0,
 };
 
 // On the glasses every installed web app keeps its own storage (2026-10-25: Bakar Home could not read
 // Tidal Glass's pairing), so the phone app adds Quran Glass with the pairing in its own address
 // (#t=…&k=…, which never reaches a server) and this copy is kept. In a shared browser Tidal Glass's works too.
-function phonePairing() {
+function phonePairing(remember = true) {
   try {
     const h = new URLSearchParams(location.hash.slice(1));
     const t = h.get('t');
     const k = h.get('k');
     if (t && k) {
-      try { localStorage.setItem('tg.pair', JSON.stringify({ t, k })); } catch (e) { /* the address still works */ }
+      try { if (remember) localStorage.setItem('tg.pair', JSON.stringify({ t, k })); } catch (e) { /* the address still works */ }
       return { t, k };
     }
   } catch (e) { /* no usable address */ }
@@ -1124,14 +1126,56 @@ function bytesB64url(bytes) {
   return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
-async function phoneKeyReady() {
+function samePair(a, b) {
+  return Boolean(a && b && a.t === b.t && a.k === b.k);
+}
+
+function mayListen(grant) {
+  return Boolean(grant && voice.grant === grant && voice.on && !document.hidden &&
+    view.screen === 'reader' && reciting() && !currentVerse()?.tanzil &&
+    samePair(grant, phonePairing(false)));
+}
+
+function closeMicChoice() {
+  clearTimeout(voice.choiceTimer);
+  voice.choiceTimer = 0;
+  voice.choice = null;
+  const choice = $('androidMicChoice');
+  if (choice.open) choice.close();
+}
+
+function openMicChoice() {
+  if (document.hidden || view.screen !== 'reader' || !reciting() || !currentVerse() || currentVerse().tanzil) return;
   const pair = phonePairing();
-  if (!pair || !window.crypto || !crypto.subtle) return false;
-  if (!voice.key || voice.topic !== pair.t) {
-    voice.key = await crypto.subtle.importKey('raw', b64urlBytes(pair.k), 'AES-GCM', false, ['encrypt', 'decrypt']);
-    voice.topic = pair.t;
+  if (!pair) {
+    voiceReason('Android not linked', 'On iPhone, pinch each word or play the reciter. Voice following needs the linked Android Tidal Glass app.');
+    return;
   }
-  return true;
+  closeMicChoice();
+  voice.choice = {pair, ch: cur.ch, metered: Boolean(voice.offer)};
+  $('androidDataNote').hidden = !voice.offer;
+  $('androidDataNote').textContent = voice.offer ? `Starting allows the Android model download over mobile data${offerSize()}.` : '';
+  $('androidMicChoice').showModal();
+  $('keepReading').focus();
+  voice.choiceTimer = setTimeout(closeMicChoice, 30000);
+}
+
+function confirmMicChoice() {
+  const choice = voice.choice;
+  const valid = $('androidMicChoice').open && choice && !document.hidden && view.screen === 'reader' &&
+    cur?.ch === choice.ch && reciting() && currentVerse() && !currentVerse().tanzil &&
+    samePair(choice.pair, phonePairing(false));
+  closeMicChoice();
+  if (!valid) return;
+  // New object identity on every explicit confirmation. Never persist this grant.
+  voice.grant = choice.pair;
+  voiceStart(choice.metered, choice.pair);
+}
+
+function revokeMic() {
+  closeMicChoice();
+  voiceStop();
+  voiceForget();
 }
 
 async function sealForPhone(obj) {
@@ -1188,18 +1232,31 @@ function scheduleRetry(client) {
 
 // Opens the link for the given topics (qv: voice, s: the phone's report, which carries the glasses'
 // battery). Reopens if a new topic is needed.
-async function phoneConnect(subs) {
-  if (voice.links.length && subs.every((x) => voice.subs.includes(x))) return true;
+async function phoneConnect(subs, grant = null) {
+  const pair = phonePairing(false);
+  if (!pair || !window.crypto?.subtle) return false;
+  if (voice.links.length && samePair(pair, voice.linkPair) && subs.every(x => voice.subs.includes(x))) return true;
   phoneDisconnect();
-  if (!(await phoneKeyReady()) || !(await loadMqtt())) return false;
+  const connectionId = voice.connectionId;
+  let key;
+  try {
+    key = await crypto.subtle.importKey('raw', b64urlBytes(pair.k), 'AES-GCM', false, ['encrypt', 'decrypt']);
+    if (!(await loadMqtt())) return false;
+  } catch (_) { return false; }
+  if (connectionId !== voice.connectionId || document.hidden || !samePair(pair, phonePairing(false)) ||
+      (grant && !mayListen(grant))) return false;
+  voice.key = key;
+  voice.topic = pair.t;
+  voice.linkPair = pair;
   voice.subs = subs;
   const id = bytesB64url(crypto.getRandomValues(new Uint8Array(6))).replace(/[-_]/g, 'x');
   const add = ({ url, ...extra }) => {
     const client = mqtt.connect(url, {
       clientId: `qgg-${id}-${voice.links.length}`, clean: true, keepalive: 45, protocolVersion: 4,
-      reconnectPeriod: 0, connectTimeout: 6000, ...extra,
+      queueQoSZero: false, reconnectPeriod: 0, connectTimeout: 6000, ...extra,
     });
     client.on('connect', () => {
+      if (connectionId !== voice.connectionId || !voice.links.includes(client)) return;
       client.fails = 0;
       clearTimeout(client.retryTimer);
       client.retryTimer = 0;
@@ -1207,10 +1264,15 @@ async function phoneConnect(subs) {
       client.subscribe(voice.subs.map((x) => `bkr/${voice.topic}/${x}`), { qos: 1 });
       const now = Date.now();
       voice.sent = voice.sent.filter((o) => now - o.at < RESEND_WINDOW);
-      for (const o of voice.sent) client.publish(`bkr/${voice.topic}/c`, o.body, { qos: 1 });
+      for (const o of voice.sent) publishVoiceItem(client, o);
       phoneFlush();
     });
-    client.on('message', (t, payload) => phoneMessage(t.slice(t.lastIndexOf('/') + 1), new TextDecoder().decode(payload)));
+    client.on('message', (t, payload, packet) => {
+      const sub = t.slice(t.lastIndexOf('/') + 1);
+      if (connectionId === voice.connectionId && !(sub === 'qv' && packet?.retain)) {
+        phoneMessage(sub, new TextDecoder().decode(payload), connectionId);
+      }
+    });
     client.on('close', () => scheduleRetry(client));
     client.on('error', () => { /* the close that follows schedules the next try */ });
     voice.links.push(client);
@@ -1220,12 +1282,20 @@ async function phoneConnect(subs) {
 }
 
 function phoneDisconnect() {
+  voice.connectionId++;
+  voice.outbox = [];
   clearTimeout(voice.peekTimer);
   const old = voice.links;
   voice.links = [];
   voice.subs = [];
   voice.sent = [];
   for (const l of old) { clearTimeout(l.retryTimer); try { l.end(false); } catch (e) { /* already closed */ } }
+}
+
+function publishVoiceItem(client, item) {
+  if (!client.connected || !mayListen(item.grant)) return;
+  client.publish(`bkr/${item.grant.t}/c`, item.body, {qos: 0, retain: false});
+  if (item.command === 'qStart') voice.startSent = true;
 }
 
 function phoneFlush() {
@@ -1235,29 +1305,31 @@ function phoneFlush() {
   const due = voice.outbox.filter((o) => now - o.at < 30000);
   voice.outbox = [];
   for (const o of due) {
-    for (const l of live) l.publish(`bkr/${voice.topic}/c`, o.body, { qos: 1 });
-    voice.sent.push({ body: o.body, at: now });
+    if (!mayListen(o.grant)) continue;
+    for (const l of live) publishVoiceItem(l, o);
+    voice.sent.push(o);
   }
 }
 
 // Sends a sealed command. One that cannot go out yet waits up to 30 s for a link, unless `keep` is
 // false: a stop delivered late could end the next start.
-async function phoneSend(c, extra = {}, keep = true) {
-  if (!voice.key) return;
+async function phoneSend(c, extra = {}) {
+  const grant = voice.grant;
+  if (!mayListen(grant) || !voice.key || !samePair(grant, voice.linkPair)) return;
   const ts = Date.now();
-  if (c === 'qStart') voice.startTs = ts; // every answer to this start echoes it (re)
-  const body = await sealForPhone({ c, ts, ...extra });
-  if (c === 'qStart') voice.startBody = body;
-  const live = voice.links.filter((l) => l.connected);
-  if (!live.length) { if (keep) voice.outbox.push({ body, at: Date.now() }); return; }
-  for (const l of live) l.publish(`bkr/${voice.topic}/c`, body, { qos: 1 });
-  if (keep) {
-    voice.sent.push({ body, at: Date.now() });
-    if (voice.sent.length > 20) voice.sent.shift();
-  }
+  if (c === 'qStart') voice.startTs = ts;
+  const body = await sealForPhone({c, ts, ...extra});
+  if (!mayListen(grant) || (c === 'qStart' && voice.startTs !== ts)) return;
+  const item = {body, at: ts, grant, command: c};
+  if (c === 'qStart') voice.startItem = item;
+  const live = voice.links.filter(l => l.connected);
+  if (!live.length) { voice.outbox.push(item); return; }
+  for (const l of live) publishVoiceItem(l, item);
+  voice.sent.push(item);
+  if (voice.sent.length > 20) voice.sent.shift();
 }
 
-async function phoneMessage(sub, text) {
+async function phoneMessage(sub, text, connectionId = voice.connectionId) {
   // The phone's report stays on the brokers, so a return to view gets the same one again: it has still
   // arrived, and links that came only for it close.
   if (sub === 's' && text === voice.report) { if (!voice.on && voice.subs.length === 1) phoneDisconnect(); return; }
@@ -1266,6 +1338,7 @@ async function phoneMessage(sub, text) {
   if (voice.recent.length > 16) voice.recent.shift();
   let m;
   try { m = await openFromPhone(text); } catch (e) { return; }
+  if (connectionId !== voice.connectionId || document.hidden) return;
   if (sub === 's') {
     voice.report = text;
     // The phone's report of the glasses' battery, for when this browser cannot read it.
@@ -1273,7 +1346,7 @@ async function phoneMessage(sub, text) {
     if (!voice.on && voice.subs.length === 1) phoneDisconnect(); // the links came only for this report
     return;
   }
-  if (m.t !== 'qv' || !voice.on || !cur || m.s !== cur.ch) return;
+  if (m.t !== 'qv' || !mayListen(voice.grant) || !voice.startSent || !cur || m.s !== cur.ch) return;
   // `re` is the time stamp of the qStart the phone is answering. An answer to an earlier start (late,
   // or replayed from a public broker) is dropped. Older phone builds send no `re`; that is accepted.
   if (m.re != null && Number(m.re) < voice.startTs) return;
@@ -1290,8 +1363,8 @@ async function phoneMessage(sub, text) {
   if (m.ca) voiceSaying(m.ca);
 }
 
-async function voiceStart(metered) {
-  if (!cur || !currentVerse() || currentVerse().tanzil) return;
+async function voiceStart(metered, grant) {
+  if (!grant || voice.grant !== grant || document.hidden || !cur || !currentVerse() || currentVerse().tanzil) return;
   voice.offer = null;
   voice.note = '';
   hideToast(); // the reason for the last stop has been read: this press tries again
@@ -1304,26 +1377,26 @@ async function voiceStart(metered) {
   voice.outbox = []; // nothing left from an earlier try goes out with this one
   drawVoice();
   if ($('tip').classList.contains('on')) showTip(document.activeElement); // the button's new name
-  if (!(await phoneConnect(['qv', 's']))) {
-    if (!voice.on) return; // stopped meanwhile: nothing to report
-    voice.on = false;
-    voice.st = '';
+  voice.startSent = false;
+  voiceWatch();
+  if (!(await phoneConnect(['qv', 's'], grant))) {
+    if (!mayListen(grant)) return; // stopped meanwhile: nothing to report
+    voiceEnd();
     voiceReason('Can’t reach your phone', 'Can’t reach your phone');
     return;
   }
   // Stopped while the links were opening (a quick second press): close what just opened.
-  if (!voice.on) { phoneDisconnect(); return; }
+  if (!mayListen(grant)) return;
   voice.linked = voice.links.some((l) => l.connected);
-  voice.startBody = '';
+  voice.startItem = null;
   phoneSend('qStart', { s: cur.ch, a: cur.v, w: reciteAt, ...(metered ? { metered: true } : {}) }); // from the word he is on
   // Until the phone answers, the same start goes out again every 4 s: the phone ignores one it already
   // has, and starts if it was off the broker for a moment when the first passed (2026-10-25: from home
   // only one broker could be reached, and the phone dropped off it now and then).
   clearInterval(voice.retryTimer);
   voice.retryTimer = setInterval(() => {
-    if (!voice.on || voice.heardAt >= voice.askedAt) { clearInterval(voice.retryTimer); voice.retryTimer = 0; return; }
-    if (!voice.startBody) return;
-    for (const l of voice.links.filter((x) => x.connected)) l.publish(`bkr/${voice.topic}/c`, voice.startBody, { qos: 1 });
+    if (!mayListen(grant) || voice.heardAt >= voice.askedAt) { clearInterval(voice.retryTimer); voice.retryTimer = 0; return; }
+    if (voice.startItem) for (const l of voice.links) publishVoiceItem(l, voice.startItem);
   }, 4000);
   clearInterval(voice.aliveTimer);
   // Check-ins start once the phone has answered; until then the start itself is all it needs.
@@ -1335,15 +1408,33 @@ async function voiceStart(metered) {
 // Stops listening when asked (a press, leaving the reader, the display going to sleep): the phone is
 // told, then the links close.
 function voiceStop() {
-  if (!voice.on) return;
-  const bye = phoneSend('qStop', {}, false);
+  const grant = voice.grant;
+  if (!voice.on && !grant) return;
+  // qStop is shared with the Android Quran player. Only send it to the old
+  // confirmed session if that session actually transmitted a start.
+  const links = voice.links.filter(l => l.connected);
+  const stop = grant && voice.startSent && links.length
+    ? sealForPhone({c: 'qStop', ts: Date.now()}).catch(() => null) : null;
+  const connectionId = voice.connectionId;
   voiceEnd(false);
-  bye.catch(() => {}).then(() => { if (!voice.on) phoneDisconnect(); });
+  if (!stop) { phoneDisconnect(); return; }
+  stop.then(body => {
+    if (connectionId !== voice.connectionId || voice.grant) return;
+    if (body) for (const link of links) {
+      if (link.connected) link.publish(`bkr/${grant.t}/c`, body, {qos: 0, retain: false});
+    }
+    phoneDisconnect();
+  });
 }
 
 // Listening is over (asked, an error, quiet, or no answer): the gold stays, the check-ins stop and the
 // links close, so nothing keeps reconnecting in the background.
 function voiceEnd(close = true) {
+  voice.grant = null;
+  voice.startSent = false;
+  voice.startItem = null;
+  voice.outbox = [];
+  voice.sent = [];
   voice.on = false;
   voice.st = '';
   clearInterval(voice.aliveTimer);
@@ -1436,7 +1527,7 @@ function voiceStatus(m) {
   if (m.mic) voice.mic = m.mic;
   if (m.pct != null) voice.pct = m.pct;
   if (m.mb) voice.mb = m.mb;
-  if (m.st === 'listening') showToast(voice.mic === 'glasses' ? 'Listening through your glasses' : 'Listening through your phone');
+  if (m.st === 'listening') showToast(voice.mic === 'glasses' ? 'Listening through your glasses' : 'Listening through Android');
   else if (m.st === 'needs-wifi') {
     voiceEnd();
     voiceOffer(Number(m.mb) || 0);
@@ -1468,7 +1559,7 @@ function voiceLevel(level) {
 // The top line's voice state, short enough to sit beside the longest place (and the battery).
 function voiceLine() {
   if (!voice.on) return voice.note;
-  if (voice.st === 'asking') return Date.now() - voice.askedAt > 8000 ? 'Phone not answering' : 'Asking your phone…';
+  if (voice.st === 'asking') return Date.now() - voice.askedAt > 8000 ? 'Android not answering' : 'Asking Android…';
   if (voice.st === 'loading') return 'Getting ready…';
   if (voice.st === 'model') return `Voice model ${voice.pct}%`;
   if (voice.st === 'listening') return 'Listening';
@@ -1479,7 +1570,7 @@ function voiceLine() {
 function voiceName() {
   if (voice.on) return 'Stop listening';
   if (voice.offer) return `Use mobile data${offerSize()}`;
-  return 'Follow my voice';
+  return 'Choose Android voice following';
 }
 
 function drawVoice() {
@@ -1716,7 +1807,7 @@ function applyMode() {
   $('hint').hidden = !r || arabicOnly;
   $('voice').hidden = !r || arabicOnly;
   $('mode').hidden = arabicOnly;
-  if (!r) { voiceStop(); voiceForget(); }
+  if (!r || arabicOnly) { closeMicChoice(); voiceStop(); voiceForget(); }
   $('textbox').tabIndex = r ? 0 : -1;
   shown($('modeListen'), !r);
   shown($('modeRecite'), r);
@@ -1926,7 +2017,7 @@ const TIPS = {
   hint: () => (settings.memorise ? 'Hint: first letter, then the word, then hear it' : 'Hint: the next word’s reading, then hear it'),
   voice: () => (voice.on ? voiceName()
     : voice.offer ? `${voiceName()} · any other pinch cancels`
-      : 'Follow my voice: your phone listens and gilds each word'),
+      : 'Android voice following · choose whether to start listening'),
   nextAyah: () => 'Next ayah',
   mode: () => (reciting() ? 'Reciting yourself · pinch to follow the reciter' : 'Following the reciter · pinch to recite yourself'),
   readerOptions: () => 'Reciter, font, effects and more',
@@ -2463,9 +2554,23 @@ function wire() {
   $('readerOptions').addEventListener('click', () => openFrom('readerOptions', { screen: 'options' }));
   $('play').addEventListener('click', () => (playing ? pause() : play()));
   $('hint').addEventListener('click', hint);
+  $('keepReading').addEventListener('click', closeMicChoice);
+  $('useAndroidMic').addEventListener('click', confirmMicChoice);
+  $('androidMicChoice').addEventListener('cancel', e => { e.preventDefault(); closeMicChoice(); });
+  $('androidMicChoice').addEventListener('keydown', e => {
+    if (e.key === 'Escape' || e.key === 'Backspace') {
+      e.preventDefault();
+      e.stopPropagation();
+      closeMicChoice();
+      return;
+    }
+    if (!['ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.key)) return;
+    e.preventDefault();
+    (e.key === 'ArrowDown' || e.key === 'ArrowRight' ? $('useAndroidMic') : $('keepReading')).focus();
+  });
   $('voice').addEventListener('click', () => {
     if (voice.on) voiceStop();
-    else voiceStart(!!voice.offer); // named "Use mobile data" while the phone waits for that yes
+    else openMicChoice();
   });
   // The next press anywhere clears a stop reason from the top line (and elsewhere, a mobile-data offer).
   document.addEventListener('keydown', (e) => { if (e.key === 'Enter') voicePress(e); }, true);
@@ -2552,8 +2657,11 @@ function wire() {
     if (document.visibilityState === 'visible') { if (playing) loop(); if (!batteryKnown) peekPhoneBattery(); return; }
     stopPreview();
     stopEffects();
-    voiceStop(); // the phone stops listening and the microphones go back to music mode
+    revokeMic(); // Do not carry the previous foreground visit's authority through sleep.
   });
+  window.addEventListener('pagehide', revokeMic);
+  window.addEventListener('hashchange', revokeMic);
+  window.addEventListener('storage', e => { if (e.key === null || e.key === 'tg.pair') revokeMic(); });
   window.addEventListener('popstate', onPopState);
 }
 

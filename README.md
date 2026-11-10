@@ -5,8 +5,7 @@ A Quran reader for Meta Ray-Ban Display glasses (a Meta web app, 600×600, Neura
 - **Follow the reciter:** a recitation plays and each word turns gold as it is recited, with its meaning
   underneath.
 - **Recite myself:** the wearer recites and each word turns gold as it is said, either by a pinch per word or,
-  with the Tidal Glass phone app paired on the same glasses, by the phone listening through the glasses'
-  microphones (Follow my voice).
+  with the linked Android Tidal Glass app, by explicitly choosing **Start Android listening**. The Android app may use the glasses or handset microphone. iPhone users can mark each word manually or play the reciter through the web reader.
 
 When WebMCP is enabled on the glasses, open Quran and say “Hey Meta, open surah 112.”
 The command selects the same surah as a pinch and leaves playback off. It works from Home,
@@ -55,6 +54,12 @@ Gilding follows the recorded timing, the wearer's own marks or what the phone he
 tajwīd. A word the phone heard but could not make out is gilded in a fainter gold.
 
 ## Privacy: Follow my voice
+
+Each attempt needs a fresh, explicit Android confirmation. Closing or hiding the reader ends that
+grant. The web reader plays recitations in its own audio element. It sends no Android play, pause or
+seek command. The existing Android protocol shares its stop command with the Android Quran player,
+so ending a confirmed listening request can also stop Quran playback on that phone. Canceling an
+unstarted session sends no stop. If the phone is disconnected, it relies on its own keepalive timeout.
 
 While Follow my voice is on, the glasses and the phone exchange short messages through public MQTT
 brokers, all three at once: broker.emqx.io, broker.hivemq.com and public.cloud.shiftr.io. The
