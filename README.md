@@ -8,6 +8,10 @@ A Quran reader for Meta Ray-Ban Display glasses (a Meta web app, 600×600, Neura
   with the Tidal Glass phone app paired on the same glasses, by the phone listening through the glasses'
   microphones (Follow my voice).
 
+When WebMCP is enabled on the glasses, open Quran and say “Hey Meta, open surah 112.”
+The command selects the same surah as a pinch and leaves playback off. It works from Home,
+the surah list or an idle reader. The tool returns only the requested surah number.
+
 Live at https://baklarrrr.github.io/quran-glass/ (install page: `install.html`; privacy and terms:
 [`privacy.html`](https://baklarrrr.github.io/quran-glass/privacy.html)). Personal project by Bakar (Bakar Studio);
 not affiliated with Meta, Quran Foundation, QuranicAudio or mp3quran.net.

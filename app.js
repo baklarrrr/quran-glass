@@ -393,6 +393,57 @@ function openFrom(from, next) {
   go(next);
 }
 
+// The same destination as a pinch on a surah. Keep a saved place on this device.
+function surahReader(ch) {
+  return { screen: 'reader', ch, v: pos && pos.ch === ch ? pos.v : 1 };
+}
+
+function registerVoiceNavigation() {
+  const ctx = document.modelContext;
+  if (!ctx || typeof ctx.registerTool !== 'function') return;
+  try {
+    const registration = ctx.registerTool({
+      name: 'quran_open_surah',
+      description: 'Open a numbered surah in the Quran reader when the wearer asks. Opens the reader silently.',
+      inputSchema: {
+        type: 'object',
+        properties: { number: { type: 'integer', description: 'Surah number from 1 to 114.' } },
+        required: ['number'],
+      },
+      execute(input) {
+        const value = input?.number;
+        const ch = typeof value === 'string' && /^\d{1,3}$/.test(value) ? Number(value) : value;
+        if (!Number.isInteger(ch) || ch < 1 || ch > 114) {
+          return JSON.stringify({ error: true, next_action: 'Ask for a surah number from 1 to 114.' });
+        }
+        if (document.hidden || !['home', 'list', 'reader'].includes(view.screen) ||
+            playing || wantPlay || voice.on) {
+          return JSON.stringify({ error: true, next_action: 'Ask the wearer to return to the surah list with playback and voice following stopped, then retry.' });
+        }
+        if (chapter(ch)?.id !== ch) {
+          return JSON.stringify({ error: true, next_action: 'Ask the wearer to check the internet connection and retry when the surah list is ready.' });
+        }
+        if (view.screen === 'reader') {
+          if (view.ch !== ch) {
+            const next = surahReader(ch);
+            history.replaceState(next, '');
+            render(next);
+          }
+        } else {
+          const focus = view.screen === 'list' ? `surah-${ch}` : document.activeElement?.id;
+          openFrom(focus, surahReader(ch));
+        }
+        return JSON.stringify({ reader_open: ch, next_action: 'Confirm selection only. The reader loads the text separately.' });
+      },
+    });
+    if (typeof registration?.then === 'function') {
+      registration.then(undefined, () => console.warn('Voice navigation unavailable.'));
+    }
+  } catch {
+    console.warn('Voice navigation unavailable.');
+  }
+}
+
 function focusFirst(...ids) {
   for (const id of ids) {
     const el = typeof id === 'string' ? $(id) : id;
@@ -428,7 +479,7 @@ function renderHome() {
       b.innerHTML = '<span class="ar-name" lang="ar" dir="rtl" translate="no"></span><span class="en"></span>';
       b.querySelector('.ar-name').textContent = c.ar;
       b.querySelector('.en').textContent = c.en;
-      b.addEventListener('click', () => openFrom(b.id, { screen: 'reader', ch, v: pos && pos.ch === ch ? pos.v : 1 }));
+      b.addEventListener('click', () => openFrom(b.id, surahReader(ch)));
       picks.appendChild(b);
     }
   }
@@ -451,7 +502,7 @@ function renderList() {
       b.querySelector('.en').textContent = c.en;
       b.querySelector('.sub').textContent = `${c.tn} · ${c.n} ayahs`;
       b.querySelector('.ar-name').textContent = c.ar;
-      b.addEventListener('click', () => openFrom(b.id, { screen: 'reader', ch: c.id, v: pos && pos.ch === c.id ? pos.v : 1 }));
+      b.addEventListener('click', () => openFrom(b.id, surahReader(c.id)));
       li.appendChild(b);
       list.appendChild(li);
     }
@@ -2412,6 +2463,7 @@ async function main() {
   applyMode();
   render({ screen: 'home' });
   registerServiceWorker();
+  registerVoiceNavigation();
   watchBattery();
   try {
     await ensureChapters();

@@ -4,7 +4,7 @@
 // shows on the next launch. Only this app's own files are handled: Quran.com data, the recitation
 // audio, the font and the optional reciter timings (another path on the same site) always come from
 // their own servers.
-const CACHE = 'quran-glass-v13';
+const CACHE = 'quran-glass-v14';
 const SCOPE = new URL(self.registration.scope);
 const SHELL = ['./', 'index.html', 'style.css', 'app.js', 'icon.svg', 'icon-mono.svg'];
 
@@ -18,7 +18,7 @@ self.addEventListener('install', (event) => {
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys()
-      .then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k))))
+      .then((keys) => Promise.all(keys.filter((k) => /^quran-glass-v\d+$/.test(k) && k !== CACHE).map((k) => caches.delete(k))))
       .then(() => self.clients.claim()),
   );
 });
