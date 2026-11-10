@@ -318,3 +318,9 @@ button:focus .ar-name { background: var(--gilt); -webkit-background-clip: text; 
   .tip { transition: opacity 180ms ease; }
   .ayah .w { transition: filter 140ms ease; }
 }
+
+.basmala { text-align: center; color: var(--dim); font-family: var(--arabic, serif); font-size: 1.45rem; line-height: 1.7; margin: 0 0 .35rem; }
+.arabic-source { margin: .2em 0; text-align: center; color: var(--dim); font-size: 16px; }
+.arabic-source a, .credit a { color: inherit; }
+.arabic-source button { margin-inline-start: .55em; padding: .38em .75em; border: 1px solid var(--dim); border-radius: 999px; font: inherit; color: var(--ink); }
+.arabic-source button:focus-visible, .arabic-source a:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }

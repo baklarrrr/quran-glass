@@ -45,6 +45,8 @@
         <h2 id="listTitle" tabindex="-1">Surahs</h2>
         <span id="tip-list" class="dim headtip" data-default="Swipe left or right to jump ten">Swipe left or right to jump ten</span>
       </header>
+      <p id="listStatus" role="status" hidden></p>
+      <button id="retryList" class="pill" hidden>Retry</button>
       <ol id="surahs" class="surahs"></ol>
     </section>
 
@@ -55,6 +57,7 @@
         <span id="who" class="who"><span id="liveDot" class="dot" aria-hidden="true"></span><span id="whoText"></span><span class="batt" data-batt hidden></span></span>
       </header>
       <div class="rule" aria-hidden="true"><span class="rule-gem"></span></div>
+      <p id="basmala" class="basmala" lang="ar" dir="rtl" translate="no" hidden></p>
       <div id="textbox" class="textbox" tabindex="-1" aria-label="Ayah text">
         <p id="ayah" class="ayah" lang="ar" dir="rtl" translate="no"></p>
         <span id="comet" class="comet" aria-hidden="true"></span>
@@ -62,6 +65,11 @@
       <canvas id="fx" class="fx" aria-hidden="true"></canvas>
       <p id="gloss" class="gloss" aria-live="off"></p>
       <p id="meaning" class="meaning"></p>
+      <button id="retryAyah" class="pill" hidden>Retry loading ayah</button>
+      <p id="arabicSource" class="arabic-source" hidden>
+        Arabic only · <a href="https://tanzil.net/">Tanzil Project</a>
+        <button id="retryReader" type="button">Retry audio &amp; meanings</button>
+      </p>
       <div class="controls">
         <button id="prevAyah" class="round" aria-label="Previous ayah">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 5h2.2v14H6zM19 5.6v12.8a.8.8 0 0 1-1.2.7L9.5 12.7a.8.8 0 0 1 0-1.4l8.3-6.4a.8.8 0 0 1 1.2.7z"/></svg>
@@ -107,7 +115,7 @@
         <span id="tip-options" class="dim headtip" data-default="Swipe left or right to change">Swipe left or right to change</span>
       </header>
       <div id="optRows" class="optrows"></div>
-      <p class="credit">Quran data provided by Quran.Foundation (Quran.com): text, word meanings, word audio and timing. English: Saheeh International. Recitations: QuranicAudio; “aligned”: mp3quran.net, timed by Bakar Studio. Follow my voice: mrmuminov’s model, built on NVIDIA FastConformer (CC BY 4.0). Gilding does not check tajwīd.</p>
+      <p class="credit">Arabic reading text from the <a href="https://tanzil.net/">Tanzil Project</a>. Quran.Foundation (Quran.com) supplies online text, word meanings, word audio and timing. English: Saheeh International. Recitations: QuranicAudio; “aligned”: mp3quran.net, timed by Bakar Studio. Follow my voice: mrmuminov’s model, built on NVIDIA FastConformer (CC BY 4.0). Gilding does not check tajwīd.</p>
     </section>
 
     <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>

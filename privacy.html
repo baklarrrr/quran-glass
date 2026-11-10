@@ -22,14 +22,13 @@
     <h1>Quran Glass: privacy and terms</h1>
     <p>Quran Glass is a free Quran reader for Meta Ray-Ban Display glasses, made by Bakar Studio as a personal
       project. It has no accounts, no ads, no analytics and no tracking. It uses the Quran Foundation APIs
-      (Quran.com) for the Quran text, word meanings, word audio and word timing.</p>
+      (Quran.com) for online text, meanings, audio and timing. The Arabic reading fallback uses verbatim Uthmani text from the <a href="https://tanzil.net/">Tanzil Project</a>.</p>
 
     <h2>What is kept, and where</h2>
     <ul>
       <li>On the glasses only, in the browser's own storage: your settings, your place (surah, ayah and word),
-        your progress, whether a tip has been shown, and the surah list (which is fetched again after seven days).
-        Nothing of this leaves the glasses. Removing the app from the glasses removes it.</li>
-      <li>The Quran text, meanings and audio are loaded while you read and are not stored by the app.</li>
+        your progress, whether a tip has been shown, and the online surah list (refreshed after seven days). Removing the app from the glasses removes it.</li>
+      <li>Online verse meanings and timing are loaded during use. The app includes Tanzil Arabic text and may keep chapters you have opened in local storage for offline reading. Quran Glass does not record your recitation.</li>
     </ul>
 
     <h2>Who sees what</h2>
@@ -38,6 +37,7 @@
         website would: GitHub Pages (the app), Google Fonts (the Arabic fonts), the Quran Foundation API and its
         audio host (text, meanings, word audio and timing), QuranicAudio (recitations) and, for reciters marked
         “aligned”, mp3quran.net (recitations) and Bakar Studio's timing files on GitHub Pages.</li>
+      <li>If Meta AI voice navigation is enabled, Meta AI handles your spoken request. Quran Glass receives a surah number and returns that number with a status or an error. It does not send the verse text, reading history or progress to Meta AI.</li>
       <li>Follow my voice (optional, with the Tidal Glass phone app): the glasses and your phone exchange short
         messages through public MQTT brokers (broker.emqx.io, broker.hivemq.com and
         public.cloud.shiftr.io). Each message is sealed with a key known only to your glasses and phone, so the
@@ -46,8 +46,7 @@
 
     <h2>Terms of use</h2>
     <ul>
-      <li>Quran Glass is free for personal use. The Quran text is shown exactly as the Quran Foundation API
-        delivers it. Gilding follows recorded timing, your own marks or what your phone hears; it does not check
+      <li>Quran Glass is free for personal use. The offline Arabic edition is Tanzil Uthmani version 1.1. The original <a href="tanzil/NOTICE.txt">copyright notice</a> is included in each chapter under the <a href="https://tanzil.net/docs/Text_License">Tanzil text license</a>. The chapter catalog is from Tanzil’s <a href="https://tanzil.net/docs/Quran_Metadata">Quran metadata</a>. Gilding follows recorded timing, your own marks or what your phone hears; it does not check
         recitation or tajwīd.</li>
       <li>Quran data provided by Quran.Foundation (Quran.com). English translation: Saheeh International.
         Recitations: QuranicAudio; reciters marked “aligned”: mp3quran.net, word timing by Bakar Studio
@@ -58,7 +57,7 @@
 
     <h2>Questions</h2>
     <p>Open an issue at <a href="https://github.com/baklarrrr/quran-glass/issues">github.com/baklarrrr/quran-glass</a>.</p>
-    <small>Last updated 25 October 2026.</small>
+    <small>Last updated 10 November 2026.</small>
   </main>
 </body>
 </html>

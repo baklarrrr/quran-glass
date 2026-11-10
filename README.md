@@ -10,7 +10,7 @@ A Quran reader for Meta Ray-Ban Display glasses (a Meta web app, 600×600, Neura
 
 When WebMCP is enabled on the glasses, open Quran and say “Hey Meta, open surah 112.”
 The command selects the same surah as a pinch and leaves playback off. It works from Home,
-the surah list or an idle reader. The tool returns only the requested surah number.
+the surah list or an idle reader. The tool reports the selected number and a short status to Meta AI. It does not read out your saved position or progress.
 
 Live at https://baklarrrr.github.io/quran-glass/ (install page: `install.html`; privacy and terms:
 [`privacy.html`](https://baklarrrr.github.io/quran-glass/privacy.html)). Personal project by Bakar (Bakar Studio);
@@ -18,8 +18,18 @@ not affiliated with Meta, Quran Foundation, QuranicAudio or mp3quran.net.
 
 ## Credits and sources
 
-Nothing of the Quran is stored in this repository; it is loaded while the app runs. The surah list is kept on
-the glasses for at most seven days, as the Quran Foundation API terms allow, then fetched again.
+If the online service cannot supply an ayah, the reader opens the Arabic text from the
+[Tanzil Project](https://tanzil.net/). Pinch or swipe right to mark the next word and swipe left to undo.
+The fallback includes all 114 surahs in separate files. An opened chapter can be kept on the glasses for
+offline reading. A first visit to a chapter needs a connection to the app's host. Select **Retry audio & meanings** to check for the online text, meanings, timing and recitation again.
+
+The bundled Uthmani text is Tanzil version 1.1. Each ayah and its diacritics are reproduced verbatim.
+An opening basmala supplied separately in the source is displayed separately from the numbered ayah.
+[Text license](https://tanzil.net/docs/Text_License) · [source checksums](tanzil/source.json).
+Every chapter file contains the original copyright notice. The catalog uses
+[Tanzil metadata](https://tanzil.net/docs/Quran_Metadata), copyright 2008–2009 Tanzil.info (CC BY).
+Reproduce the import with `python3 tools/import_tanzil.py <official-text.xml> <official-metadata.xml>`.
+Online Quran Foundation content is fetched while reading. Its chapter list is kept for up to seven days.
 
 - Quran data provided by Quran.Foundation ([Quran.com](https://quran.com)): Quran text (Uthmani script),
   word-by-word English meanings and transliteration, per-word recitation timing and word audio, from the

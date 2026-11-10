@@ -166,7 +166,7 @@ function currentVerse() {
 }
 
 function reciting() {
-  return settings.mode === 'recite';
+  return settings.mode === 'recite' || Boolean(currentVerse()?.tanzil);
 }
 
 function plainText(html) {
@@ -174,29 +174,67 @@ function plainText(html) {
   return String(html || '').replace(/<sup[^>]*>.*?<\/sup>/g, '').replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
 }
 
-async function getJson(path) {
-  const r = await fetch(API + path);
-  if (!r.ok) throw new Error(`HTTP ${r.status}`);
-  return r.json();
+// Quran Foundation can time out on a cold phone link. Share in-flight requests
+// and bound how long the reader waits before opening its same-origin Arabic copy.
+let chapterRequest = null;
+let retryContentAfter = 0;
+const bundledRequests = new Map();
+
+async function getJson(path, reading = false) {
+  // Full-surah timing downloads can take substantially longer on the glasses.
+  const options = reading ? {signal: AbortSignal.timeout(3500)} : {};
+  const response = await fetch(API + path, options);
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  return response.json();
 }
 
-// ---- data from Quran.com -----------------------------------------------------------------------
+function bundledFile(name) {
+  if (!bundledRequests.has(name)) {
+    const request = (async () => {
+      const url = new URL(`tanzil/${name}.json`, document.baseURI).href;
+      let cache;
+      try {
+        cache = await caches.open('quran-glass-tanzil-v1.1');
+        const stored = await cache.match(url);
+        if (stored) return await stored.json();
+      } catch (_) { /* Storage can be unavailable on a fresh or private device. */ }
+      const response = await fetch(url, {signal: AbortSignal.timeout(10000)});
+      if (!response.ok) throw new Error('Arabic text unavailable');
+      const data = await response.clone().json();
+      if (cache) {
+        try { await cache.put(url, response); } catch (_) { /* Still usable this session. */ }
+      }
+      return data;
+    })().catch(error => { bundledRequests.delete(name); throw error; });
+    bundledRequests.set(name, request);
+  }
+  return bundledRequests.get(name);
+}
 
-async function ensureChapters() {
-  if (chapters && chapters.length === 114) return chapters;
-  const data = await getJson('/chapters?language=en');
-  chapters = data.chapters.map((c) => ({ id: c.id, en: c.name_simple, tn: c.translated_name ? c.translated_name.name : '', ar: c.name_arabic, n: c.verses_count }));
-  try {
-    localStorage.setItem('qg.chapters', JSON.stringify(chapters));
-    localStorage.setItem('qg.chaptersAt', JSON.stringify(Date.now()));
-  } catch (e) { /* fine */ }
-  return chapters;
+function ensureChapters() {
+  if (chapters?.length === 114) return Promise.resolve(chapters);
+  if (!chapterRequest) {
+    chapterRequest = (async () => {
+      try {
+        const data = await getJson('/chapters?language=en', true);
+        if (data.chapters?.length !== 114) throw new Error('Incomplete chapter list');
+        chapters = data.chapters.map(c => ({id: c.id, en: c.name_simple, tn: c.translated_name?.name || '', ar: c.name_arabic, n: c.verses_count}));
+        save('qg.chapters', chapters);
+        save('qg.chaptersAt', Date.now());
+      } catch (_) {
+        retryContentAfter = Date.now() + 60000;
+        chapters = (await bundledFile('chapters')).chapters;
+      }
+      return chapters;
+    })().finally(() => { chapterRequest = null; });
+  }
+  return chapterRequest;
 }
 
 function loadPage(ch, page) {
   const key = `${ch}:${page}`;
   if (!pages.has(key)) {
-    const p = getJson(`/verses/by_chapter/${ch}?words=true&word_fields=text_uthmani&translations=${TRANSLATION}&fields=text_uthmani&per_page=${PAGE}&page=${page}`)
+    const p = getJson(`/verses/by_chapter/${ch}?words=true&word_fields=text_uthmani&translations=${TRANSLATION}&fields=text_uthmani&per_page=${PAGE}&page=${page}`, true)
       .then((data) => {
         const list = verses.get(ch) || [];
         for (const v of data.verses) {
@@ -218,13 +256,60 @@ function loadPage(ch, page) {
   return pages.get(key);
 }
 
+// Keep stand-alone pause and sajdah marks with the preceding Arabic word. Rejoining
+// these exact strings with a space reproduces the source ayah, including its marks.
+function tanzilWords(text) {
+  const tokens = [];
+  for (const word of text.split(' ')) {
+    if (tokens.length && !/[ء-يٱ]/u.test(word)) tokens[tokens.length - 1] += ' ' + word;
+    else tokens.push(word);
+  }
+  return tokens.map((ar, i) => ({ar, p: i + 1}));
+}
+
 async function ensureVerse(ch, v) {
-  const list = verses.get(ch);
-  if (!list || !list[v]) await loadPage(ch, Math.floor((v - 1) / PAGE) + 1);
-  // Keep the next page coming before it is needed.
-  const c = chapter(ch);
-  if (c && v % PAGE > PAGE - 10 && v + 10 <= c.n) loadPage(ch, Math.floor((v - 1) / PAGE) + 2).catch(() => {});
-  return verses.get(ch)[v];
+  const saved = verses.get(ch)?.[v];
+  if (saved?.words?.length) return saved;
+  const page = Math.floor((v - 1) / PAGE) + 1;
+  if (Date.now() >= retryContentAfter) {
+    try {
+      await loadPage(ch, page);
+      const verse = verses.get(ch)?.[v];
+      if (!verse?.words.length) { pages.delete(`${ch}:${page}`); throw new Error('Ayah missing'); }
+      const c = chapter(ch);
+      if (c && v % PAGE > PAGE - 10 && v + 10 <= c.n) loadPage(ch, page + 1).catch(() => {});
+      return verse;
+    } catch (_) { retryContentAfter = Date.now() + 60000; }
+  }
+  const data = await bundledFile(ch);
+  const text = data.ayahs[v - 1];
+  if (data.chapter !== ch || !text) throw new Error('Ayah unavailable');
+  const list = verses.get(ch) || [];
+  list[v] = {n: v, key: `${ch}:${v}`, tanzil: true, basmala: v === 1 ? data.basmala : '', words: tanzilWords(text)};
+  verses.set(ch, list);
+  return list[v];
+}
+
+async function retryReader() {
+  if (!cur || $('retryReader').disabled) return;
+  const {ch, v} = cur;
+  $('retryReader').disabled = true;
+  try {
+    await loadPage(ch, Math.floor((v - 1) / PAGE) + 1);
+    if (!verses.get(ch)?.[v]?.words?.length || verses.get(ch)[v].tanzil) {
+      pages.delete(`${ch}:${Math.floor((v - 1) / PAGE) + 1}`);
+      throw new Error('Unavailable');
+    }
+    retryContentAfter = 0;
+    if (view.screen !== 'reader' || cur.ch !== ch || cur.v !== v) return;
+    // Token positions from the two editions are not guaranteed to match.
+    await moveTo(ch, v, false, 0);
+    focusFirst(reciting() ? 'textbox' : 'play');
+    showToast('Online reader restored');
+  } catch (_) {
+    retryContentAfter = Date.now() + 60000;
+    if (view.screen === 'reader' && cur.ch === ch && cur.v === v) showToast('Online content is unavailable. You can keep reading Arabic.');
+  } finally { $('retryReader').disabled = false; }
 }
 
 function ensureTiming(rid, ch) {
@@ -490,6 +575,8 @@ function renderHome() {
 
 function renderList() {
   const list = $('surahs');
+  $('listStatus').hidden = Boolean(chapters);
+  $('retryList').hidden = true;
   if (chapters && !list.childElementCount) {
     for (const c of chapters) {
       const li = document.createElement('li');
@@ -508,7 +595,13 @@ function renderList() {
     }
   }
   if (!chapters) {
-    ensureChapters().then(() => { if (view.screen === 'list') renderList(); }).catch(() => showToast('Can’t reach Quran.com right now'));
+    $('listStatus').textContent = 'Loading surahs…';
+    ensureChapters().then(() => { if (view.screen === 'list') renderList(); }).catch(() => {
+      if (view.screen !== 'list') return;
+      $('listStatus').textContent = 'The surah list is unavailable.';
+      $('retryList').hidden = false;
+      $('retryList').focus();
+    });
     $('listTitle').focus();
     return;
   }
@@ -522,8 +615,10 @@ async function renderReader() {
   const ch = view.ch || (pos && pos.ch) || 1;
   const v = view.v || 1;
   const at = pos && pos.ch === ch && pos.v === v ? pos.w || 0 : 0;
-  if (!cur || cur.ch !== ch || cur.v !== v) await moveTo(ch, v, playing && cur && cur.ch === ch, at);
+  if (!cur || cur.ch !== ch || cur.v !== v || !currentVerse()) await moveTo(ch, v, playing && cur && cur.ch === ch, at);
   else drawAyah();
+  if (view.screen !== 'reader' || view.ch !== ch || view.v !== v) return;
+  if (!currentVerse()) { focusFirst('retryAyah'); return; }
   focusFirst(view.focus && $(view.focus), reciting() ? 'textbox' : 'play');
   if (playing) loop(); // back on the reader: word lighting resumes
 }
@@ -531,17 +626,16 @@ async function renderReader() {
 // Shows ayah v of surah ch. While playing in the same surah the recitation jumps there too. In
 // Recite myself, `at` words start gilded (-1: all of them, when stepping back from the next ayah).
 async function moveTo(ch, v, keepPlaying, at = 0) {
+  const savedEdition = pos && pos.ch === ch && pos.v === v && at > 0 ? pos.edition || 'quran.com' : null;
   const surahChanged = !cur || cur.ch !== ch;
   cur = { ch, v };
   if (surahChanged) voice.unclear.clear();
   hideTip($('tip')); // an "Ayah complete" from the ayah before never stays on the next one
   // The wearer moved by hand while the phone listens: it follows (a move the phone itself made is not
   // sent back to it).
-  if (voice.on && !voice.moving) phoneSend(surahChanged ? 'qStart' : 'qJump', surahChanged ? { s: ch, a: v, w: Math.max(0, at) } : { a: v, w: Math.max(0, at) });
   reciteAt = Math.max(0, at);
   hintStep = 0;
   ayahDone = false;
-  savePos();
   history.replaceState({ ...view, ch, v }, '');
   view = { ...view, ch, v };
   litWord = -1;
@@ -552,11 +646,21 @@ async function moveTo(ch, v, keepPlaying, at = 0) {
     await ensureChapters();
     await ensureVerse(ch, v);
   } catch (e) {
-    drawLoading('Can’t reach Quran.com. Check your phone’s connection.');
+    if (view.screen === 'reader' && cur.ch === ch && cur.v === v) drawLoading('Connect to download this surah.');
     return;
   }
-  if (cur.ch !== ch || cur.v !== v) return; // moved on while loading
+  if (cur.ch !== ch || cur.v !== v || !['reader', 'options'].includes(view.screen)) return; // moved on while loading
   const verse = currentVerse();
+  if (verse.tanzil) {
+    wantPlay = false;
+    if (voice.on) voiceStop();
+    voiceForget();
+    if (playing) pause();
+  } else if (voice.on && !voice.moving) {
+    phoneSend(surahChanged ? 'qStart' : 'qJump', surahChanged ? {s: ch, a: v, w: Math.max(0, at)} : {a: v, w: Math.max(0, at)});
+  }
+  applyMode();
+  if (savedEdition && savedEdition !== (verse.tanzil ? 'tanzil' : 'quran.com')) reciteAt = 0;
   if (at === -1) { reciteAt = verse.words.length; ayahDone = true; }
   reciteAt = Math.min(reciteAt, verse.words.length);
   savePos();
@@ -571,12 +675,14 @@ async function moveTo(ch, v, keepPlaying, at = 0) {
 
 function savePos() {
   if (!cur) return;
-  pos = { ch: cur.ch, v: cur.v, w: reciting() ? reciteAt : 0 };
+  pos = { ch: cur.ch, v: cur.v, w: reciting() ? reciteAt : 0, edition: currentVerse()?.tanzil ? 'tanzil' : 'quran.com' };
   save('qg.pos', pos);
 }
 
 function drawLoading(text) {
   const el = $('ayah');
+  $('basmala').hidden = $('arabicSource').hidden = true;
+  $('retryAyah').hidden = !text;
   el.className = 'ayah loading';
   el.textContent = text || 'Loading…';
   spans = [];
@@ -595,7 +701,7 @@ function drawTop() {
     const heard = voiceLine();
     $('whoText').textContent = !verse ? heard
       : heard ? `${heard} · ${reciteAt} of ${verse.words.length}`
-        : `${reciteAt} of ${verse.words.length} words${settings.memorise ? ' · memorise' : ''}`;
+        : `${reciteAt} of ${verse.words.length} words${settings.memorise && !verse.tanzil ? ' · memorise' : ''}`;
   } else {
     const extra = (settings.speed !== 1 ? ` · ${settings.speed}×` : '') + (settings.repeat !== 1 ? ` · ↻${settings.repeat === 0 ? '∞' : settings.repeat}` : '');
     $('whoText').textContent = reciter().short + extra;
@@ -609,7 +715,7 @@ function drawTop() {
 }
 
 function upcoming() {
-  return settings.memorise ? 'w veiled' : 'w';
+  return settings.memorise && !currentVerse()?.tanzil ? 'w veiled' : 'w';
 }
 
 // Writes a word's class only when it changes, so a step redraws one or two words, not the ayah. A word
@@ -662,11 +768,15 @@ function drawAyahNow() {
     e.textContent = '۝' + verse.end;
     el.appendChild(e);
   }
-  $('meaning').textContent = settings.meaning ? verse.meaning : '';
-  shown($('meaning'), settings.meaning);
+  $('retryAyah').hidden = true;
+  $('basmala').textContent = verse.basmala || '';
+  $('basmala').hidden = !verse.basmala;
+  $('arabicSource').hidden = !verse.tanzil;
+  $('meaning').textContent = settings.meaning ? verse.meaning || '' : '';
+  shown($('meaning'), settings.meaning && !verse.tanzil);
   $('meaning').scrollTop = 0;
   $('gloss').textContent = '';
-  shown($('gloss'), settings.gloss);
+  shown($('gloss'), settings.gloss && !verse.tanzil);
   if (reciting()) {
     paintRecite();
     showGloss(reciteAt > 0 ? verse.words[reciteAt - 1] : null);
@@ -748,7 +858,7 @@ function syncMeaning(frac) {
 function showGloss(word, isNext) {
   const gloss = $('gloss');
   gloss.textContent = '';
-  if (!word || (!settings.gloss && !isNext)) return;
+  if (currentVerse()?.tanzil || !word || (!settings.gloss && !isNext)) return;
   if (isNext) shown(gloss, true);
   const tr = document.createElement('span');
   tr.className = 'tr';
@@ -1181,7 +1291,7 @@ async function phoneMessage(sub, text) {
 }
 
 async function voiceStart(metered) {
-  if (!cur) return;
+  if (!cur || !currentVerse() || currentVerse().tanzil) return;
   voice.offer = null;
   voice.note = '';
   hideToast(); // the reason for the last stop has been read: this press tries again
@@ -1602,8 +1712,10 @@ function stopEffects() {
 function applyMode() {
   const r = reciting();
   $('play').hidden = r;
-  $('hint').hidden = !r;
-  $('voice').hidden = !r;
+  const arabicOnly = Boolean(currentVerse()?.tanzil);
+  $('hint').hidden = !r || arabicOnly;
+  $('voice').hidden = !r || arabicOnly;
+  $('mode').hidden = arabicOnly;
   if (!r) { voiceStop(); voiceForget(); }
   $('textbox').tabIndex = r ? 0 : -1;
   shown($('modeListen'), !r);
@@ -1631,11 +1743,11 @@ function setMode(m) {
 // The surah's timing is fetched and the audio pointed at its file as soon as a surah opens, so a
 // pinch on Play reaches audio.play() at once: players often allow sound to start only from a press.
 async function prepareAudio() {
-  if (!cur) return null;
+  if (!cur || currentVerse()?.tanzil) return null;
   const ch = cur.ch;
   const rid = settings.reciter;
   const t = await ensureTiming(rid, ch);
-  if (!cur || cur.ch !== ch || settings.reciter !== rid) return null;
+  if (!cur || cur.ch !== ch || currentVerse()?.tanzil || settings.reciter !== rid) return null;
   timing = { ...t, ch, rid };
   if (audio.getAttribute('src') !== t.url) {
     audio.preload = 'metadata';
@@ -2342,6 +2454,9 @@ function drawBattery(level, charging) {
 
 function wire() {
   $('resume').addEventListener('click', () => { if (pos) openFrom('resume', { screen: 'reader', ch: pos.ch, v: pos.v }); });
+  $('retryList').addEventListener('click', renderList);
+  $('retryReader').addEventListener('click', retryReader);
+  $('retryAyah').addEventListener('click', renderReader);
   $('allSurahs').addEventListener('click', () => openFrom('allSurahs', { screen: 'list' }));
   $('homeProgress').addEventListener('click', () => openFrom('homeProgress', { screen: 'progress' }));
   $('homeOptions').addEventListener('click', () => openFrom('homeOptions', { screen: 'options' }));
@@ -2378,7 +2493,7 @@ function wire() {
       e.preventDefault();
       e.stopPropagation();
       if (e.key === 'ArrowDown') {
-        const below = ['hint', 'voice', 'nextAyah'].map((id) => $(id)).find((b) => b && !b.hidden);
+        const below = (currentVerse()?.tanzil ? ['retryReader', 'nextAyah'] : ['hint', 'voice', 'nextAyah']).map((id) => $(id)).find((b) => b && !b.hidden);
         if (below) below.focus();
       }
     }

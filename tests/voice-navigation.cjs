@@ -86,7 +86,8 @@ async function run() {
         await page.route('**/verses/by_chapter/17?*', route => route.fulfill({status: 502, body: 'Unavailable'}));
         const unavailable = await call({number:17});
         assert.equal(unavailable.reader_open, 17);
-        await page.waitForFunction(() => document.querySelector('#ayah').textContent.includes('Check your phone'));
+        await page.locator('#arabicSource').waitFor();
+        assert.equal(await page.locator('#whoText').innerText(), '0 of ' + (await page.locator('#ayah [data-p]').count()) + ' words');
         await page.goBack();
         await page.evaluate(() => { chapters = null; });
         assert.equal((await call({number:36})).error, true);
@@ -114,7 +115,7 @@ async function run() {
       }
       return (await caches.keys()).sort();
     });
-    assert.deepEqual(keys, ['glass-home-v34', 'quran-glass-v14', 'quran-glass-vendor']);
+    assert.deepEqual(keys, ['glass-home-v34', 'quran-glass-v15', 'quran-glass-vendor']);
     console.log('Passed voice routing, input, saved place, back, silent mode, registration fallback and cache isolation.');
   } finally {
     if (browser) await browser.close();

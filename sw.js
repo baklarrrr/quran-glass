@@ -4,9 +4,9 @@
 // shows on the next launch. Only this app's own files are handled: Quran.com data, the recitation
 // audio, the font and the optional reciter timings (another path on the same site) always come from
 // their own servers.
-const CACHE = 'quran-glass-v14';
+const CACHE = 'quran-glass-v15';
 const SCOPE = new URL(self.registration.scope);
-const SHELL = ['./', 'index.html', 'style.css', 'app.js', 'icon.svg', 'icon-mono.svg'];
+const SHELL = ['./', 'index.html', 'style.css', 'app.js', 'icon.svg', 'icon-mono.svg', 'tanzil/chapters.json'];
 
 // The copy is filled straight from the server, never from the browser's own cache.
 self.addEventListener('install', (event) => {
@@ -25,6 +25,7 @@ self.addEventListener('activate', (event) => {
 
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
+  if (/\/tanzil\/\d+\.json$/.test(url.pathname)) return; // Chapter files have their own persistent edition cache.
   if (event.request.method !== 'GET' || url.origin !== SCOPE.origin || !url.pathname.startsWith(SCOPE.pathname)) return;
   event.respondWith((async () => {
     const cache = await caches.open(CACHE);
