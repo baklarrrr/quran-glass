@@ -4,9 +4,10 @@
 // shows on the next launch. Only this app's own files are handled: Quran.com data, the recitation
 // audio, the font and the optional reciter timings (another path on the same site) always come from
 // their own servers.
-const CACHE = 'quran-glass-v18';
+const CACHE = 'quran-glass-v19';
 const SCOPE = new URL(self.registration.scope);
-const SHELL = ['./', 'index.html', 'style.css', 'app.js', 'icon.svg', 'icon-mono.svg', 'tanzil/chapters.json'];
+const SHELL = ['./', 'index.html', 'style.css', 'app.js', 'icon.svg', 'icon-mono.svg',
+  'manifest.webmanifest', '.well-known/meta-wearables-manifest.json', 'icon-192.png', 'icon-512.png', 'icon-maskable-512.png', 'tanzil/chapters.json'];
 
 // The copy is filled straight from the server, never from the browser's own cache.
 self.addEventListener('install', (event) => {

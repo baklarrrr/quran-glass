@@ -3,13 +3,16 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="application-name" content="Quran">
-  <meta name="description" content="Follow a Quran recitation word by word on Meta Ray-Ban Display, or recite yourself: pinch on each word, or let your phone listen and gild each word as you say it. Text, word meanings, word audio and timing from Quran.com; recitations from QuranicAudio, and aligned recitations from mp3quran.net timed by Bakar Studio.">
+  <meta name="application-name" content="Quran Glass">
+  <meta name="apple-mobile-web-app-title" content="Quran Glass">
+  <meta name="description" content="Read a surah, listen to the recitation, and follow each word.">
   <meta name="mrbd-web-app-capable" content="yes">
   <meta name="robots" content="noindex, nofollow">
   <meta name="theme-color" content="#000000">
-  <title>Quran</title>
+  <title>Quran Glass</title>
   <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" sizes="192x192" href="icon-192.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <!-- Three Arabic fonts (Options → Arabic font); only the one in use is downloaded. -->
@@ -21,7 +24,7 @@
     <!-- Home: carry on where you stopped, or pick a surah. -->
     <section id="home" class="screen" aria-labelledby="homeTitle">
       <header class="head">
-        <h1 id="homeTitle"><span class="title-ar" lang="ar" dir="rtl" translate="no">القرآن الكريم</span><span class="title-en">Quran</span></h1>
+        <h1 id="homeTitle"><span class="title-ar" lang="ar" dir="rtl" translate="no">القرآن الكريم</span><span class="title-en">Quran Glass</span></h1>
         <span class="headside"><span id="homeNote" class="dim"></span><span class="batt" data-batt hidden></span></span>
       </header>
       <button id="resume" class="card" data-tip="Carry on where you stopped" hidden>

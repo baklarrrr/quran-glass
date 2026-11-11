@@ -1,7 +1,7 @@
 {
   "version": 1,
-  "name": "Quran",
-  "description": "Follow a recitation word by word, or recite yourself and see each word gilded as you say it.",
+  "name": "Quran Glass",
+  "description": "Read a surah, listen to the recitation, and follow each word.",
   "appearance": {
     "theme_color": "#FFD27A",
     "icon_background": {

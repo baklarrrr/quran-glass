@@ -7,7 +7,7 @@ A Quran reader for Meta Ray-Ban Display glasses (a Meta web app, 600×600, Neura
 - **Recite myself:** the wearer recites and each word turns gold as it is said, either by a pinch per word or,
   with the linked Android Tidal Glass app, by pressing **Start Android mic**. The Android app may use the glasses or handset microphone. iPhone users can mark each word manually or play the reciter through the web reader.
 
-When WebMCP is enabled on the glasses, open Quran and say “Hey Meta, open surah 112.”
+When WebMCP is enabled on the glasses, open Quran Glass and say “Hey Meta, open surah 112.”
 The command selects the same surah as a pinch and leaves playback off. It works from Home,
 the surah list or an idle reader. The tool reports the selected number and a short status to Meta AI. It does not read out your saved position or progress.
 
