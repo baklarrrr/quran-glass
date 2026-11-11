@@ -69,10 +69,32 @@ async function run() {
       };
     });
 
-    await page.goto(base);
+    const mic = page.getByRole('button',{name:'Start Android mic'});
+    const testKey = Buffer.alloc(32,42).toString('base64url');
+    const legacy = base + '/#t=test-android&k=' + testKey;
+    for (const url of [base, legacy]) {
+      await page.goto(url);
+      await page.reload();
+      await page.locator('#pick-112').click();
+      await page.locator('#ayah [data-p]').first().waitFor();
+      await page.evaluate(()=>{visibility(true);visibility(false);});
+      assert.equal(await mic.isVisible(), false, 'no Android microphone on a standard or old install');
+      await page.focus('#textbox');
+      await page.keyboard.press('Enter');
+      assert.equal(await page.evaluate(()=>reciteAt),1);
+      await page.keyboard.press('ArrowLeft');
+      assert.equal(await page.evaluate(()=>reciteAt),0);
+      assert.equal(await page.evaluate(()=>clients.length),0);
+      assert.deepEqual(await page.evaluate(()=>window.commands()),[]);
+    }
+    if (process.env.QURAN_REVIEW_DIR) {
+      await fs.mkdir(process.env.QURAN_REVIEW_DIR,{recursive:true});
+      await page.screenshot({path:path.join(process.env.QURAN_REVIEW_DIR,'iphone-reader.png')});
+    }
+    await page.goto(base + '/#androidBridge=test-android~' + testKey);
+    await page.reload();
     await page.locator('#pick-112').click();
     await page.locator('#ayah [data-p]').first().waitFor();
-    const mic = page.getByRole('button',{name:'Start Android mic'});
     const commands = () => page.evaluate(()=>window.commands());
     const receiveState = (age = 0, retain = false, wrong = false) => page.evaluate(async ({age,retain,wrong})=>{
       const payload = await sealForPhone({t:'state',at:Date.now()-age,gb:67});
@@ -138,15 +160,11 @@ async function run() {
     assert.equal(await page.evaluate(()=>Boolean(voice.retryTimer)||Boolean(voice.aliveTimer)),false);
     await start();await page.clock.fastForward(21000);
     await page.waitForFunction(()=>!voice.grant&&!voice.on);
-    await start();await page.evaluate(()=>{
-      const pair=JSON.parse(localStorage.getItem('tg.pair'));pair.t='replaced-target';
-      localStorage.setItem('tg.pair',JSON.stringify(pair));dispatchEvent(new StorageEvent('storage',{key:'tg.pair'}));
-    });
+    await start();
+    await page.evaluate(()=>{ location.hash='t=old-phone&k=legacy'; });
     await page.waitForFunction(()=>!voice.grant&&!voice.on&&!voice.links.length);
     assert((await commands()).every(i=>i.topic==='bkr/test-android/c'));
-    await page.evaluate(()=>{localStorage.removeItem('tg.pair');});
     await page.reload();await page.click('#pick-112');await page.locator('#ayah [data-p]').first().waitFor();
-    await page.evaluate(()=>{localStorage.removeItem('tg.pair');applyMode();});
     assert.equal(await page.locator('#voice').isVisible(),false);
     await page.goto(base);
     await page.evaluate(url=>{const frame=document.createElement('iframe');frame.src=url;document.body.append(frame);},base+'/index.html');

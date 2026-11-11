@@ -1091,25 +1091,13 @@ const voice = {
   retryTimer: 0,
 };
 
-// On the glasses every installed web app keeps its own storage (2026-10-25: Bakar Home could not read
-// Tidal Glass's pairing), so the phone app adds Quran Glass with the pairing in its own address
-// (#t=…&k=…, which never reaches a server) and this copy is kept. In a shared browser Tidal Glass's works too.
-function phonePairing(remember = true) {
-  try {
-    const h = new URLSearchParams(location.hash.slice(1));
-    const t = h.get('t');
-    const k = h.get('k');
-    if (t && k) {
-      try { if (remember) localStorage.setItem('tg.pair', JSON.stringify({ t, k })); } catch (e) { /* the address still works */ }
-      return { t, k };
-    }
-  } catch (e) { /* no usable address */ }
-  try {
-    const p = JSON.parse(localStorage.getItem('tg.pair') || 'null');
-    return p && p.t && p.k ? p : null;
-  } catch (e) {
-    return null;
-  }
+// The standard reader is local to the glasses. Only an explicitly Android-linked
+// visit offers the Android microphone. A stored pair or a pre-iPhone install URL
+// may still identify the previous phone.
+function phonePairing() {
+  const bridge = new URLSearchParams(location.hash.slice(1)).get('androidBridge') || '';
+  const [t, k, extra] = bridge.split('~');
+  return t && k && extra === undefined ? { t, k } : null;
 }
 
 function b64urlBytes(s) {
@@ -1131,7 +1119,7 @@ function samePair(a, b) {
 function mayListen(grant) {
   return Boolean(grant && voice.grant === grant && voice.on && !document.hidden && window.top === window.self &&
     view.screen === 'reader' && reciting() && currentVerse() && !currentVerse().tanzil &&
-    samePair(grant, phonePairing(false)));
+    samePair(grant, phonePairing()));
 }
 
 function startAndroidMic(event) {
@@ -1204,7 +1192,7 @@ function scheduleRetry(client) {
 // Opens the link for the given topics (qv: voice, s: the phone's report, which carries the glasses'
 // battery). Reopens if a new topic is needed.
 async function phoneConnect(subs, grant) {
-  const pair = phonePairing(false);
+  const pair = phonePairing();
   if (!pair || !window.crypto?.subtle) return false;
   if (voice.links.length && samePair(pair, voice.linkPair) && subs.every(x => voice.subs.includes(x))) return true;
   phoneDisconnect();
@@ -1214,7 +1202,7 @@ async function phoneConnect(subs, grant) {
     key = await crypto.subtle.importKey('raw', b64urlBytes(pair.k), 'AES-GCM', false, ['encrypt', 'decrypt']);
     if (!(await loadMqtt())) return false;
   } catch (_) { return false; }
-  if (connectionId !== voice.connectionId || document.hidden || !samePair(pair, phonePairing(false)) ||
+  if (connectionId !== voice.connectionId || document.hidden || !samePair(pair, phonePairing()) ||
       (grant && !mayListen(grant))) return false;
   voice.key = key;
   voice.topic = pair.t;
@@ -1770,7 +1758,7 @@ function applyMode() {
   $('play').hidden = r;
   const arabicOnly = Boolean(currentVerse()?.tanzil);
   $('hint').hidden = !r || arabicOnly;
-  $('voice').hidden = !r || arabicOnly || !currentVerse() || window.top !== window.self || !phonePairing(false);
+  $('voice').hidden = !r || arabicOnly || !currentVerse() || window.top !== window.self || !phonePairing();
   $('mode').hidden = arabicOnly;
   if (!r || arabicOnly) { voiceStop(); voiceForget(); }
   $('textbox').tabIndex = r ? 0 : -1;
@@ -2612,7 +2600,6 @@ function wire() {
   window.addEventListener('pagehide', revokeMic);
   const refreshMicTarget = () => { revokeMic(); if (view.screen === 'reader') applyMode(); };
   window.addEventListener('hashchange', refreshMicTarget);
-  window.addEventListener('storage', e => { if (e.key === null || e.key === 'tg.pair') refreshMicTarget(); });
   window.addEventListener('popstate', onPopState);
 }
 

@@ -55,7 +55,7 @@ tajwīd. A word the phone heard but could not make out is gilded in a fainter go
 
 ## Privacy: Follow my voice
 
-Reading, pinching words and playing a reciter open directly. Each Android listening attempt requires pressing **Start Android mic**. A fresh encrypted state from that Android companion must arrive before the microphone command is sent. Closing or hiding the reader ends that
+Reading, pinching words and playing a reciter open directly. An Android companion must explicitly link the reader with `#androidBridge=topic~key` to offer its microphone. A saved pairing or legacy address leaves the reader in its normal mode. Each Android listening attempt requires pressing **Start Android mic**. A fresh encrypted state from that Android companion must arrive before the microphone command is sent. Closing or hiding the reader ends that
 grant. The web reader plays recitations in its own audio element. It sends no Android play, pause or
 seek command. The reader requests a voice-only stop when it ends a listening session. The current Android companion supports this scope; older builds may handle a stop differently. Canceling an
 unstarted session sends no stop. If the phone is disconnected, it relies on its own keepalive timeout.
@@ -64,6 +64,6 @@ While Follow my voice is on, the glasses and the phone exchange short messages t
 brokers, all three at once: broker.emqx.io, broker.hivemq.com and public.cloud.shiftr.io. The
 glasses send where to follow from (again when the wearer moves), a check-in every 20 seconds and a stop;
 the phone sends its status, the loudness it hears and the positions of the words it heard. Each message
-is sealed with AES-GCM using the pairing key that Tidal Glass stored on these glasses, so the brokers
+is sealed with AES-GCM using the pairing key from the Android companion link, so the brokers
 relay ciphertext. They can still see the topic name and when messages pass. While Android voice following is active, its status can also supply the glasses’ battery. This web app records no audio. What the phone
 app does with the microphone audio has not been independently verified.
