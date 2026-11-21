@@ -1,6 +1,6 @@
 'use strict';
 
-// Quran on Meta Ray-Ban Display.
+// Bakar Quran on Meta Ray-Ban Display.
 // Two ways to follow an ayah, both gilding each word once it has been recited:
 //   Follow the reciter: a reciter's recording plays and the words gild with Quran.com's timing.
 //   Recite myself: the wearer recites aloud and gilds each word with a pinch or a swipe right as
@@ -42,6 +42,18 @@ const SPEEDS = [0.75, 0.9, 1, 1.15, 1.3];
 const PICKS = [1, 36, 18, 67, 55, 112];
 // Marks that belong to the letter before them (vowels, Quranic signs), kept with it in hints.
 const MARK = /[ؐ-ًؚ-ٰٟۖ-ۭ]/;
+
+// The stored Uthmani text writes open tanween and iqlab as a tanween sign plus a small meem, a convention
+// made for its own fonts. A standard Quran font draws that literally, as a stray meem. On screen only, those
+// pairs are drawn in their standard forms, the same six as Bakar Quran on the desktop. Stored words never change.
+const DRAWN_MARKS = [
+  ['\u064B\u06ED', '\u08F0'], ['\u064C\u06ED', '\u08F1'], ['\u064D\u06E2', '\u08F2'],
+  ['\u064B\u06E2', '\u064E\u06E2'], ['\u064C\u06E2', '\u064F\u06E2'], ['\u064D\u06ED', '\u0650\u06ED'],
+];
+function drawnText(s) {
+  if (!s || !/[\u06E2\u06ED]/.test(s)) return s || '';
+  return DRAWN_MARKS.reduce((out, [stored, drawn]) => out.split(stored).join(drawn), s);
+}
 
 // Arabic typefaces (Options → Arabic font). Scheherazade New is the default: see style.css.
 const SCRIPTS = [
@@ -456,7 +468,7 @@ function render(next) {
   view = next || { screen: 'home' };
   const sc = view.screen;
   if (sc !== 'options') { stopPreview(true); disarmReset(); }
-  if (sc !== 'reader') stopEffects();
+  if (sc !== 'reader') { stopEffects(); learnStop(); }
   // Listening belongs to the reader; Options on top keeps it (the reader is still underneath).
   if (sc !== 'reader') { voiceStop(); voiceForget(); }
   clearTips();
@@ -488,6 +500,51 @@ function registerVoiceNavigation() {
   const ctx = document.modelContext;
   if (!ctx || typeof ctx.registerTool !== 'function') return;
   try {
+    const learning = ctx.registerTool({
+      name: 'quran_learn_surah',
+      description: 'Start hands-free learning when the wearer asks to learn or memorise a surah. Each ayah plays, then the wearer repeats it, then repeats it from memory.',
+      inputSchema: {
+        type: 'object',
+        properties: { number: { type: 'integer', description: 'Surah number from 1 to 114. Leave out to continue the current surah.' } },
+      },
+      execute(input) {
+        const value = input?.number;
+        const ch = value === undefined || value === null ? (view.ch || pos?.ch || 1)
+          : typeof value === 'string' && /^\d{1,3}$/.test(value) ? Number(value) : value;
+        if (!Number.isInteger(ch) || ch < 1 || ch > 114) {
+          return JSON.stringify({ error: true, next_action: 'Ask for a surah number from 1 to 114.' });
+        }
+        if (document.hidden || voice.on || chapter(ch)?.id !== ch) {
+          return JSON.stringify({ error: true, next_action: 'Ask the wearer to open the Quran app, check the connection and retry.' });
+        }
+        learnStop();
+        if (playing) pause();
+        if (settings.mode !== 'listen') {
+          settings = { ...settings, mode: 'listen' };
+          save('qg.settings', settings);
+          applyMode();
+        }
+        if (view.screen === 'reader' && view.ch === ch && currentVerse()) learnStart();
+        else {
+          learnOnOpen = true;
+          const next = surahReader(ch);
+          if (view.screen === 'reader') { history.replaceState(next, ''); render(next); } else openFrom(document.activeElement?.id, next);
+        }
+        return JSON.stringify({ learning: ch, next_action: 'Confirm in a few words. The app plays the recitation.' });
+      },
+    });
+    if (typeof learning?.then === 'function') learning.then(undefined, () => console.warn('Voice learning unavailable.'));
+    const stopping = ctx.registerTool({
+      name: 'quran_stop_learning',
+      description: 'Stop hands-free learning or the recitation when the wearer asks to stop.',
+      inputSchema: { type: 'object', properties: {} },
+      execute() {
+        learnStop('Learning stopped');
+        if (playing) pause();
+        return JSON.stringify({ stopped: true, next_action: 'Confirm in a few words.' });
+      },
+    });
+    if (typeof stopping?.then === 'function') stopping.then(undefined, () => console.warn('Voice stop unavailable.'));
     const registration = ctx.registerTool({
       name: 'quran_open_surah',
       description: 'Open a numbered surah in the Quran reader when the wearer asks. Opens the reader silently.',
@@ -503,7 +560,7 @@ function registerVoiceNavigation() {
           return JSON.stringify({ error: true, next_action: 'Ask for a surah number from 1 to 114.' });
         }
         if (document.hidden || !['home', 'list', 'reader'].includes(view.screen) ||
-            playing || wantPlay || voice.on) {
+            playing || wantPlay || voice.on || learn) {
           return JSON.stringify({ error: true, next_action: 'Ask the wearer to return to the surah list with playback and voice following stopped, then retry.' });
         }
         if (chapter(ch)?.id !== ch) {
@@ -619,9 +676,10 @@ async function renderReader() {
   if (!cur || cur.ch !== ch || cur.v !== v || !currentVerse()) await moveTo(ch, v, playing && cur && cur.ch === ch, at);
   else drawAyah();
   if (view.screen !== 'reader' || view.ch !== ch || view.v !== v) return;
-  if (!currentVerse()) { focusFirst('retryAyah'); return; }
+  if (!currentVerse()) { learnOnOpen = false; focusFirst('retryAyah'); return; }
   focusFirst(view.focus && $(view.focus), reciting() ? 'textbox' : 'play');
-  if (playing) loop(); // back on the reader: word lighting resumes
+  if (playing) { loop(); wakeStage(); } // back on the reader: word lighting resumes
+  if (learnOnOpen) { learnOnOpen = false; learnStart(); }
 }
 
 // Shows ayah v of surah ch. While playing in the same surah the recitation jumps there too. In
@@ -716,7 +774,7 @@ function drawTop() {
 }
 
 function upcoming() {
-  return settings.memorise && !currentVerse()?.tanzil ? 'w veiled' : 'w';
+  return (settings.memorise || learn?.step === 'memory') && !currentVerse()?.tanzil ? 'w veiled' : 'w';
 }
 
 // Writes a word's class only when it changes, so a step redraws one or two words, not the ayah. A word
@@ -754,7 +812,7 @@ function drawAyahNow() {
     if (i) el.appendChild(document.createTextNode(' '));
     const s = document.createElement('span');
     s.dataset.p = String(w.p);
-    s.textContent = w.ar;
+    s.textContent = drawnText(w.ar);
     el.appendChild(s);
     spans.push(s);
     spanCls.push('');
@@ -770,7 +828,7 @@ function drawAyahNow() {
     el.appendChild(e);
   }
   $('retryAyah').hidden = true;
-  $('basmala').textContent = verse.basmala || '';
+  $('basmala').textContent = drawnText(verse.basmala);
   $('basmala').hidden = !verse.basmala;
   $('arabicSource').hidden = !verse.tanzil;
   $('meaning').textContent = settings.meaning ? verse.meaning || '' : '';
@@ -899,11 +957,248 @@ function highlight(t, force) {
     if (wp === p) to = spans[i];
     setCls(i, wp < p ? 'w said' : wp === p ? 'w now' : up);
   }
+  paintFill(t);
   if (!force && before > 0 && p > before) trail(from, to);
   keepInView();
   syncMeaning(spans.length ? Math.max(0, spans.findIndex((s) => Number(s.dataset.p) === p)) / spans.length : 0);
   const verse = currentVerse();
   showGloss(verse && verse.words.find((w) => w.p === p));
+}
+
+// ---- the recital: the light on the word, and the lens left to the scripture ----------------------
+
+// The word being recited fills with cool light from its first letter on the recording's own clock, then
+// turns gold when it is finished. Only that one word is repainted, about 30 times a second, and only while
+// the recitation plays on screen. With effects off or Reduce Motion the word is simply lit.
+let fillRaf = 0;
+let fillLast = 0;
+let fillSpan = null;
+let fillP = -1;
+let fillAt = 0;
+
+function paintFill(t) {
+  const tm = timing && cur && timing.t.get(cur.v);
+  const seg = tm && tm.segs.find((s) => s[0] === litWord);
+  if (!seg) return;
+  if (!fillSpan || !fillSpan.isConnected || fillP !== litWord) {
+    fillSpan = spans.find((s) => Number(s.dataset.p) === litWord) || null;
+    fillP = litWord;
+    fillAt = 0;
+  }
+  if (!fillSpan) return;
+  const f = Math.min(1, Math.max(0, (t - seg[1]) / Math.max(1, seg[2] - seg[1])));
+  // Never runs backwards inside a word, unless the recitation itself was moved back.
+  fillAt = f < fillAt - 0.25 ? f : Math.max(fillAt, f);
+  fillSpan.style.setProperty('--f', fillAt.toFixed(3));
+}
+
+function fillFrame(now) {
+  fillRaf = 0;
+  if (!playing || reciting() || view.screen !== 'reader' || document.visibilityState !== 'visible' || effects() === 'off') return;
+  if (now - fillLast >= 32) {
+    fillLast = now;
+    paintFill(audio.currentTime * 1000);
+  }
+  fillRaf = requestAnimationFrame(fillFrame);
+}
+
+function startFill() {
+  if (!fillRaf && effects() !== 'off') fillRaf = requestAnimationFrame(fillFrame);
+}
+
+function stopFill() {
+  if (fillRaf) cancelAnimationFrame(fillRaf);
+  fillRaf = 0;
+}
+
+// While a reciter plays and nothing is pressed, the controls fade and the lens belongs to the ayah. Pinch
+// pauses, a swipe left or right changes ayah, a swipe up or down brings the controls back.
+const STAGE_AFTER = 2400;
+let stageTimer = 0;
+
+function stageAllowed() {
+  return playing && !reciting() && view.screen === 'reader' && document.visibilityState === 'visible';
+}
+
+function wakeStage() {
+  clearTimeout(stageTimer);
+  stageTimer = 0;
+  if (learn) { $('reader').classList.add('stage'); return; }
+  $('reader').classList.remove('stage');
+  if (!stageAllowed()) return;
+  stageTimer = setTimeout(() => {
+    if (!stageAllowed()) return;
+    const play = $('play');
+    if (document.activeElement !== play) play.focus({ preventScroll: true });
+    hideTip($('tip'));
+    $('reader').classList.add('stage');
+    if (!load('qg.toldStage', false)) {
+      save('qg.toldStage', true);
+      showToast('Pinch to pause · swipe to change ayah');
+    }
+  }, STAGE_AFTER);
+}
+
+function stageKey(e) {
+  if (view.screen === 'reader' && learn) { learnKey(e); return; }
+  if (view.screen !== 'reader' || !playing) return;
+  if (!$('reader').classList.contains('stage')) { wakeStage(); return; }
+  if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+    e.preventDefault();
+    e.stopPropagation();
+    stepAyah(e.key === 'ArrowRight' ? 1 : -1);
+  } else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+    e.preventDefault();
+    e.stopPropagation();
+    wakeStage();
+  }
+}
+
+// ---- Learn, hands-free ---------------------------------------------------------------------------
+// One press (or "Hey Meta, learn surah 112") and no more: the reciter says the ayah, the wearer repeats it
+// with the words showing, then again from memory, and it moves on by itself. Web apps on these glasses have
+// no microphone, so a turn is timed from the reciter's own pace, a little slower. The light shows that pace;
+// it never claims to have heard anything, and a turn is not recorded as recited.
+const LEARN_STEPS = ['hear', 'say', 'memory'];
+const LEARN_WORDS = { hear: 'Listen', say: 'Your turn', memory: 'From memory' };
+const TURN_PACE = 0.92;   // of the reciter's speed
+const TURN_LEAD = 700;    // a breath before a turn starts
+let learn = null;         // { step, token, tm, turnAt }
+let learnOnOpen = false;
+let learnTimer = 0;
+
+function learnLive(token) {
+  return !!learn && learn.token === token && view.screen === 'reader';
+}
+
+function learnCue() {
+  if (!learn) return;
+  $('cue').hidden = false;
+  $('cueText').textContent = LEARN_WORDS[learn.step] || '';
+  $('reader').classList.toggle('memory', learn.step === 'memory');
+  const at = LEARN_STEPS.indexOf(learn.step);
+  [...$('cue').querySelectorAll('i')].forEach((dot, i) => dot.classList.toggle('on', i <= at));
+}
+
+function learnStart() {
+  if (view.screen !== 'reader' || !cur || !currentVerse() || currentVerse().tanzil) {
+    showToast('Learn needs the recitation. Connect and try again.');
+    return;
+  }
+  learnStop();
+  if (playing) pause();
+  learn = { step: 'hear', token: 0 };
+  $('reader').classList.add('learning', 'stage');
+  hideTip($('tip'));
+  showToast('Pinch to stop · swipe to change ayah');
+  learnHear();
+}
+
+async function learnHear() {
+  if (!learn) return;
+  clearTimeout(learnTimer);
+  const token = ++learn.token;
+  learn.step = 'hear';
+  learnCue();
+  let t = null;
+  try { t = await prepareAudio(); } catch (e) { t = null; }
+  if (!learnLive(token)) return;
+  const tm = t && t.t.get(cur.v);
+  if (!tm) { learnStop('No recitation timing for this ayah'); return; }
+  if (tm.pass) { learnMove(1); return; }
+  litWord = -1;
+  drawAyah();
+  audio.currentTime = tm.from / 1000;
+  start();
+}
+
+function learnTurn(step) {
+  if (!learn) return;
+  const token = ++learn.token;
+  learn.step = step;
+  if (playing) pause();
+  const tm = timing && timing.t.get(cur.v);
+  if (!tm) { learnStop('No recitation timing for this ayah'); return; }
+  learn.tm = tm;
+  learn.turnAt = performance.now() + TURN_LEAD;
+  litWord = -1;
+  drawAyah();
+  learnCue();
+  learnTick(token);
+}
+
+function learnTick(token) {
+  if (!learnLive(token)) return;
+  const now = performance.now();
+  const tm = learn.tm;
+  const at = tm.from + Math.max(0, now - learn.turnAt) * (settings.speed || 1) * TURN_PACE;
+  if (at >= tm.to) {
+    if (learn.step === 'say') learnTurn('memory');
+    else learnMove(1);
+    return;
+  }
+  if (now >= learn.turnAt) {
+    highlight(at);
+    paintFill(at);
+  }
+  learnTimer = setTimeout(() => learnTick(token), 33);
+}
+
+async function learnMove(dir) {
+  if (!learn) return;
+  clearTimeout(learnTimer);
+  const c = chapter(cur.ch);
+  const v = cur.v + dir;
+  if (v < 1) { learnHear(); return; }
+  if (!c || v > c.n) { learnStop(`${c ? c.en : 'Surah'} complete`); return; }
+  const token = ++learn.token;
+  learn.step = 'moving';
+  if (playing) pause();
+  await moveTo(cur.ch, v, false, 0);
+  if (!learnLive(token)) return;
+  if (!currentVerse() || currentVerse().tanzil) { learnStop('Connect to keep learning'); return; }
+  learnHear();
+}
+
+// Coming back from a sleeping display: the same step of the same ayah starts again.
+function learnResume() {
+  if (!learn) return;
+  if (learn.step === 'say' || learn.step === 'memory') learnTurn(learn.step);
+  else if (learn.step === 'hear' && playing) loop();
+  else if (learn.step === 'hear') learnHear();
+}
+
+function learnStop(message) {
+  if (!learn) return;
+  learn = null;
+  clearTimeout(learnTimer);
+  $('cue').hidden = true;
+  $('reader').classList.remove('learning', 'memory');
+  if (playing) pause();
+  wakeStage();
+  if (view.screen === 'reader' && currentVerse()) {
+    litWord = -1;
+    drawAyah();
+  }
+  if (message) showToast(message);
+}
+
+function learnKey(e) {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    e.stopPropagation();
+    learnStop('Learning stopped');
+    focusFirst('learn', 'play');
+  } else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+    e.preventDefault();
+    e.stopPropagation();
+    learnMove(e.key === 'ArrowRight' ? 1 : -1);
+  } else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+    e.preventDefault();
+    e.stopPropagation();
+    if (playing) pause();
+    learnHear();
+  }
 }
 
 // ---- Recite myself ----------------------------------------------------------------------------
@@ -929,7 +1224,7 @@ function paintRecite() {
       else if (settings.memorise && hintStep === 1) cls = 'w veiled next lettered';
       else cls = `${up} next`;
     }
-    if (cls.includes('lettered')) spans[i].dataset.first = firstLetter(verse.words[i].ar);
+    if (cls.includes('lettered')) spans[i].dataset.first = drawnText(firstLetter(verse.words[i].ar));
     setCls(i, cls);
     if (unclear && !unclearTold && voice.on) tellUnclear();
     unclear = false;
@@ -1758,6 +2053,7 @@ function applyMode() {
   $('play').hidden = r;
   const arabicOnly = Boolean(currentVerse()?.tanzil);
   $('hint').hidden = !r || arabicOnly;
+  $('learn').hidden = r || arabicOnly;
   $('voice').hidden = !r || arabicOnly || !currentVerse() || window.top !== window.self || !phonePairing();
   $('mode').hidden = arabicOnly;
   if (!r || arabicOnly) { voiceStop(); voiceForget(); }
@@ -1836,11 +2132,15 @@ function start() {
   drawTop();
   untimedNote(tm);
   loop();
+  wakeStage();
   audio.play().catch((e) => {
     if (e && e.name === 'AbortError') return; // replaced by a newer request, such as another reciter
     playing = false;
     clearTimeout(loopTimer);
     loopTimer = 0;
+    stopFill();
+    learnStop();
+    wakeStage();
     drawTop();
     // Blocked sound needs another press; anything else means the recording itself did not load.
     showToast(e && e.name === 'NotAllowedError' ? 'Pinch Play again to start the recitation' : 'This recording can’t be reached. Try another reciter in Options.');
@@ -1848,10 +2148,13 @@ function start() {
 }
 
 function pause() {
+  if (learn && learn.step === 'hear') { learnStop(); if (!playing) return; }
   audio.pause();
   playing = false;
   clearTimeout(loopTimer);
   loopTimer = 0;
+  stopFill();
+  wakeStage();
   if (cur) drawTop();
 }
 
@@ -1862,7 +2165,10 @@ function loop() {
   step();
   // Word lighting is redrawn only while the reader is on screen, and only when the next word (or the
   // end of the ayah) is due, not every 60 ms; elsewhere the audio's own time events keep the place.
-  if (document.visibilityState === 'visible' && view.screen === 'reader') loopTimer = setTimeout(loop, nextWake());
+  if (document.visibilityState === 'visible' && view.screen === 'reader') {
+    loopTimer = setTimeout(loop, nextWake());
+    startFill();
+  }
 }
 
 // When the medallion gilds in Follow the reciter: 400 ms before the last word ends (not after, when the
@@ -1900,6 +2206,11 @@ function step() {
   const t = audio.currentTime * 1000;
   const tm = timing.t.get(cur.v);
   if (!tm) return;
+  if (learn && learn.step === 'hear' && t >= tm.to - 40) {
+    if (!tm.pass) note('listened');
+    learnTurn('say');
+    return;
+  }
   if (t >= tm.to - 40 || tm.pass) {
     // A stretch under a second is not looped: endless repeat would stutter on a fragment.
     if (repeatLeft !== 0 && !tm.pass && !(tm.untimed && tm.to - tm.from < 1000)) {
@@ -1972,6 +2283,7 @@ const TIPS = {
     : voice.offer ? `${voiceName()} · any other pinch cancels`
       : 'Start voice following using your paired Android phone'),
   nextAyah: () => 'Next ayah',
+  learn: () => 'Learn hands-free: hear it, say it, say it from memory',
   mode: () => (reciting() ? 'Reciting yourself · pinch to follow the reciter' : 'Following the reciter · pinch to recite yourself'),
   readerOptions: () => 'Reciter, font, effects and more',
   textbox: () => 'Pinch or swipe right on each word you say · swipe left to undo',
@@ -2505,6 +2817,16 @@ function wire() {
   $('homeOptions').addEventListener('click', () => openFrom('homeOptions', { screen: 'options' }));
   $('readerOptions').addEventListener('click', () => openFrom('readerOptions', { screen: 'options' }));
   $('play').addEventListener('click', () => (playing ? pause() : play()));
+  $('learn').addEventListener('click', () => learnStart());
+  $('homeLearn').addEventListener('click', () => {
+    if (settings.mode !== 'listen') {
+      settings = { ...settings, mode: 'listen' };
+      save('qg.settings', settings);
+      applyMode();
+    }
+    learnOnOpen = true;
+    openFrom('homeLearn', { screen: 'reader', ch: pos && chapter(pos.ch) ? pos.ch : 1, v: pos && chapter(pos.ch) ? pos.v : 1 });
+  });
   $('hint').addEventListener('click', hint);
   $('voice').addEventListener('click', event => {
     if (voice.on) voiceStop();
@@ -2580,6 +2902,8 @@ function wire() {
   previewAudio.addEventListener('pause', () => { const row = $('opt-reciter'); if (row) row.classList.remove('previewing'); });
   previewAudio.addEventListener('error', () => { if (previewAudio.getAttribute('src') && previewNoted) previewFailed(); });
 
+  document.addEventListener('keydown', stageKey, true);
+  document.addEventListener('pointerdown', () => { if (learn) learnStop('Learning stopped'); else if (view.screen === 'reader' && playing) wakeStage(); }, true);
   document.addEventListener('focusin', (e) => {
     showTip(e.target);
     if (e.target.id === 'opt-reciter') prefetchPreviews();
@@ -2592,7 +2916,10 @@ function wire() {
     if (e.key === 'Escape' && view.screen !== 'home') { e.preventDefault(); history.back(); }
   });
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') { if (playing) loop(); return; }
+    if (document.visibilityState === 'visible') { if (learn) learnResume(); else if (playing) { loop(); wakeStage(); } return; }
+    clearTimeout(learnTimer);
+    stopFill();
+    wakeStage();
     stopPreview();
     stopEffects();
     revokeMic(); // Do not carry the previous foreground visit's authority through sleep.

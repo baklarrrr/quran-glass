@@ -1,4 +1,4 @@
-/* Quran on Meta Ray-Ban Display.
+/* Bakar Quran on Meta Ray-Ban Display.
    The display is additive: black adds no light and reads as see-through, so the page stays black and
    only the words, a few hairlines and the focus glow are lit. Words not yet recited are a warm,
    restful white (in Recite myself the next one to say is in full light); recited words are gilded; the
@@ -13,7 +13,12 @@
   --hair: rgba(255, 255, 255, 0.32);
   --gold: #ffd27a;
   --gold-soft: rgba(255, 210, 122, 0.18);
-  --glow: 0 0 0 3px var(--gold), 0 0 16px rgba(255, 210, 122, 0.5);
+  /* One language with the desktop app: cool light is "now" and focus; gold only ever means finished or heard. */
+  --now: #a6e6fb;
+  --now-lit: #8fe0fa;
+  --now-soft: rgba(166, 230, 251, 0.16);
+  --brass: #c9b98f;
+  --glow: 0 0 0 3px var(--now), 0 0 16px rgba(166, 230, 251, 0.45);
   /* Gilding: pale highlight at the top of the letters, deep gold at the base. */
   --gilt: linear-gradient(180deg, #fff3cf 0%, #f6d27c 46%, #c9923b 100%);
   --gilt-now: linear-gradient(180deg, #fffdf4 0%, #ffe7a8 42%, #f4bf55 100%);
@@ -64,7 +69,7 @@ h2:focus { outline: none; }
 /* Header explanations double as the screen's tip line: the focused row's explanation replaces the
    default text, then fades back. */
 .headtip { text-align: end; min-inline-size: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: color 160ms ease; }
-.headtip.on { color: var(--gold); }
+.headtip.on { color: var(--now); }
 .headside { display: inline-flex; align-items: center; gap: 12px; }
 
 /* Home title: the name of the Book in gilded script, the app's name small beside it. */
@@ -73,13 +78,13 @@ h1 { display: flex; align-items: baseline; gap: 14px; }
   font-family: var(--arabic); font-weight: var(--arabic-bold); font-size: 34px; line-height: 1.25;
   background: var(--gilt); -webkit-background-clip: text; background-clip: text; color: transparent;
 }
-.title-en { font-size: 17px; font-weight: 650; letter-spacing: 0.12em; text-transform: uppercase; color: var(--dim); }
+.title-en { font-size: 17px; font-weight: 600; color: var(--soft); }
 
 /* Glasses battery, when the browser reports it. */
 .batt { display: inline-flex; align-items: center; gap: 5px; font-size: 14px; color: var(--dim); font-variant-numeric: tabular-nums; }
 .batt svg { inline-size: 20px; block-size: 12px; }
 .batt.low { color: #ff9d8a; }
-.batt.charging { color: var(--gold); }
+.batt.charging { color: var(--now); }
 
 button {
   display: inline-grid; place-items: center;
@@ -87,7 +92,7 @@ button {
   font: inherit; cursor: pointer; padding: 0; outline: none;
   -webkit-tap-highlight-color: transparent;
 }
-button:focus { border-color: var(--gold); background: var(--gold-soft); box-shadow: var(--glow); }
+button:focus { border-color: var(--now); background: var(--now-soft); box-shadow: var(--glow); }
 button:active { transform: scale(0.95); }
 button[disabled] { opacity: 0.35; }
 
@@ -96,7 +101,7 @@ button[disabled] { opacity: 0.35; }
   display: flex; flex-direction: column; align-items: flex-start; gap: 4px;
   inline-size: 100%; padding: 14px 20px 16px; border-radius: 20px; text-align: start; flex: none;
 }
-.eyebrow { font-size: 14px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--gold); }
+.eyebrow { font-size: 16px; font-weight: 600; color: var(--now); }
 .cardline { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; inline-size: 100%; }
 .big { font-size: 30px; font-weight: 750; }
 .ar-name { font-family: var(--arabic); font-weight: var(--arabic-weight); font-size: 34px; line-height: 1.2; color: var(--soft); }
@@ -106,7 +111,9 @@ button:focus .ar-name { background: var(--gilt); -webkit-background-clip: text; 
 .pick .ar-name { font-size: 28px; line-height: 1.75; }
 .pick .en { font-size: 15px; line-height: 1.2; color: var(--soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-inline-size: 100%; }
 .hint { font-size: 18px; line-height: 1.4; color: var(--soft); margin: auto 0; }
-.row3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; flex: none; margin-top: auto; }
+.row3 { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; flex: none; margin-top: auto; }
+.row3 .pill { font-size: 18px; }
+.row3 .learn-pill { border-color: var(--now); color: var(--now); font-weight: 650; }
 .pill { block-size: 56px; border-radius: 16px; font-size: 19px; }
 
 /* ---- surah list ------------------------------------------------------------------------------ */
@@ -123,7 +130,7 @@ button:focus .ar-name { background: var(--gilt); -webkit-background-clip: text; 
 .names .en { font-size: 20px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .names .sub { font-size: 14px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .surahs .ar-name { font-size: 26px; }
-.surahs button:focus .num { color: var(--gold); }
+.surahs button:focus .num { color: var(--now); }
 
 /* ---- reader --------------------------------------------------------------------------------- */
 .reader { gap: 10px; padding-block-end: 12px; position: relative; }
@@ -133,16 +140,16 @@ button:focus .ar-name { background: var(--gilt); -webkit-background-clip: text; 
 .who { display: inline-flex; align-items: center; gap: 8px; min-inline-size: 0; white-space: nowrap; font-variant-numeric: tabular-nums; }
 #whoText { min-inline-size: 0; overflow: hidden; text-overflow: ellipsis; }
 .dot { inline-size: 8px; block-size: 8px; border-radius: 50%; background: var(--dim); }
-.dot.live { background: var(--gold); box-shadow: 0 0 8px var(--gold); }
+.dot.live { background: var(--now); box-shadow: 0 0 8px var(--now); }
 /* A fine gold rule under the top line with a small lozenge at its centre: with the ayah medallion,
    the only ornament. */
 .rule {
   flex: none; position: relative; block-size: 1px; margin-block: -4px 0;
-  background: linear-gradient(90deg, transparent, rgba(255, 210, 122, 0.55) 20%, rgba(255, 210, 122, 0.55) 80%, transparent);
+  background: linear-gradient(90deg, transparent, rgba(201, 185, 143, 0.5) 20%, rgba(201, 185, 143, 0.5) 80%, transparent);
 }
 .rule-gem {
   position: absolute; inset-inline-start: 50%; inset-block-start: 50%; inline-size: 7px; block-size: 7px;
-  margin: -3.5px 0 0 -3.5px; transform: rotate(45deg); border: 1px solid rgba(255, 210, 122, 0.8); background: #000;
+  margin: -3.5px 0 0 -3.5px; transform: rotate(45deg); border: 1px solid rgba(201, 185, 143, 0.8); background: #000;
 }
 
 /* Its own layer, so the streak can pass behind the letters. */
@@ -150,7 +157,7 @@ button:focus .ar-name { background: var(--gilt); -webkit-background-clip: text; 
 .textbox::-webkit-scrollbar { display: none; }
 /* In Recite myself the text itself takes the pinches; a gold frame says so (strong enough to read
    over a bright sky). */
-.textbox:focus { box-shadow: inset 0 0 0 2px var(--gold); }
+.textbox:focus { box-shadow: inset 0 0 0 2px var(--now); }
 .ayah {
   margin: auto 0; inline-size: 100%; padding-inline: 6px;
   font-family: var(--arabic); font-weight: var(--arabic-weight); font-size: 44px; line-height: 1.95; text-align: center;
@@ -172,11 +179,13 @@ button:focus .ar-name { background: var(--gilt); -webkit-background-clip: text; 
 /* The word being said: the brightest gold, a soft halo, and a gold line under it that does not rely
    on colour alone. */
 .ayah .w.now {
-  background: var(--gilt-now);
+  background: linear-gradient(to left, var(--now-lit) calc(var(--f, 0) * 100% - 5%), var(--word) calc(var(--f, 0) * 100% + 5%));
   -webkit-background-clip: text; background-clip: text;
-  filter: drop-shadow(0 0 7px rgba(255, 196, 90, 0.55));
-  text-decoration: underline 2px var(--gold); text-decoration-skip-ink: none; text-underline-offset: 0.42em;
+  filter: drop-shadow(0 0 7px rgba(126, 214, 240, 0.5));
+  text-decoration: underline 2px var(--now); text-decoration-skip-ink: none; text-underline-offset: 0.42em;
 }
+/* Effects off or Reduce Motion: the word is simply lit, with no moving edge. */
+.fx-off .ayah .w.now { background: none; color: var(--now-lit); filter: none; }
 /* Follow my voice: a word the phone heard but could not make out is gilded in a fainter gold, with no
    line of its own (dotted lines belong to Memorise and hints). It stays brighter than the words still
    to come, and the reader says once what it means. */
@@ -185,13 +194,13 @@ button:focus .ar-name { background: var(--gilt); -webkit-background-clip: text; 
    behind it, with a gold line under it at the text (not the box). */
 .ayah .w.next {
   color: var(--word);
-  text-decoration: underline 2px rgba(255, 210, 122, 0.7); text-decoration-skip-ink: none; text-underline-offset: 0.42em;
+  text-decoration: underline 2px var(--now); text-decoration-skip-ink: none; text-underline-offset: 0.42em;
 }
 .ayah .w.veiled {
   color: transparent;
   text-decoration: underline dotted 2px rgba(255, 255, 255, 0.35); text-decoration-skip-ink: none; text-underline-offset: 0.42em;
 }
-.ayah .w.veiled.next { text-decoration-color: rgba(255, 210, 122, 0.75); }
+.ayah .w.veiled.next { text-decoration-color: var(--now); }
 /* Hint, step one in Memorise: the first letter shows where the hidden word begins. */
 .ayah .w.lettered::before {
   content: attr(data-first); position: absolute; inset-inline-start: 0; inset-block-start: 0;
@@ -203,7 +212,7 @@ button:focus .ar-name { background: var(--gilt); -webkit-background-clip: text; 
   text-decoration: underline dotted 2px rgba(255, 210, 122, 0.75); text-decoration-skip-ink: none; text-underline-offset: 0.42em;
 }
 /* Solid gold: it carries the ayah number, and fine lines at lower light vanish outdoors. */
-.ayah .end { color: #e9c27a; font-size: 0.82em; }
+.ayah .end { color: var(--brass); font-size: 0.82em; }
 .ayah .end.done { filter: drop-shadow(0 0 6px rgba(255, 196, 90, 0.5)); }
 .ayah.loading { font-family: inherit; font-size: 20px; color: var(--dim); }
 
@@ -225,7 +234,7 @@ button:focus .ar-name { background: var(--gilt); -webkit-background-clip: text; 
 .comet {
   position: absolute; inset-block-start: 0; inset-inline-start: 0; inline-size: 0; block-size: 0;
   border-radius: 999px; pointer-events: none; opacity: 0; z-index: -1;
-  background: radial-gradient(closest-side, rgba(255, 226, 150, 0.8), rgba(255, 196, 90, 0.28) 60%, transparent);
+  background: radial-gradient(closest-side, rgba(190, 238, 252, 0.75), rgba(126, 214, 240, 0.26) 60%, transparent);
   filter: blur(6px);
 }
 /* Gold sparks when an ayah is complete. */
@@ -241,27 +250,27 @@ button:focus .ar-name { background: var(--gilt); -webkit-background-clip: text; 
 }
 .meaning.more { -webkit-mask-image: linear-gradient(to bottom, #000 64%, transparent); mask-image: linear-gradient(to bottom, #000 64%, transparent); }
 
-.controls { display: flex; justify-content: center; align-items: center; gap: 18px; flex: none; }
+.controls { display: flex; justify-content: center; align-items: center; gap: 14px; flex: none; }
 .round { border-radius: 50%; inline-size: 64px; block-size: 64px; position: relative; }
 .round svg { inline-size: 28px; block-size: 28px; }
 /* Softer than pure white at rest, so the gilded text stays the brightest thing; focus makes it gold. */
 .round.primary { inline-size: 80px; block-size: 80px; border: 3px solid rgba(236, 231, 220, 0.6); }
 .round.primary svg { inline-size: 38px; block-size: 38px; }
-#hint.primary { border-color: rgba(255, 210, 122, 0.85); color: var(--gold); }
+#hint.primary { border-color: var(--now); color: var(--now); }
 /* Listening: the microphone button fills with gold light only while the phone says it is listening
    (not while asking or getting ready; the top line says those), the Hint button beside it is a ring
    only, and the top line says Listening in gold. */
 #voice.on { border-color: rgba(255, 210, 122, 0.85); color: var(--gold); background: var(--gold-soft); }
 .who.listening { color: var(--gold); }
 /* One line always, so a tip never shifts the text above it. */
-.tip { flex: none; min-block-size: 22px; text-align: center; font-size: 17px; font-weight: 650; color: var(--gold); opacity: 0; margin-block-start: -4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tip { flex: none; min-block-size: 22px; text-align: center; font-size: 17px; font-weight: 650; color: var(--now); opacity: 0; margin-block-start: -4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tip.on { opacity: 1; }
 
 /* ---- progress ------------------------------------------------------------------------------- */
 .progbody { display: flex; flex-direction: column; gap: 10px; min-block-size: 0; overflow: auto; scrollbar-width: none; padding: 3px 4px 6px; }
 .progbody::-webkit-scrollbar { display: none; }
 .prow { flex: none; padding: 10px 16px 12px; border: 1.5px solid var(--hair); border-radius: 16px; outline: none; }
-.prow:focus { border-color: var(--gold); background: var(--gold-soft); box-shadow: var(--glow); }
+.prow:focus { border-color: var(--now); background: var(--now-soft); box-shadow: var(--glow); }
 .prow .lab { font-size: 13px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--dim); }
 .prow .val { font-size: 21px; font-weight: 700; margin-block-start: 2px; }
 .prow .sub { font-size: 15px; color: var(--soft); margin-block-start: 2px; }
@@ -280,8 +289,8 @@ button:focus .ar-name { background: var(--gilt); -webkit-background-clip: text; 
 .orow .val { display: flex; justify-content: space-between; align-items: center; font-size: 19px; font-weight: 700; min-inline-size: 0; }
 .orow .val .v { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0 6px; }
 .orow .arrow { color: var(--dim); font-size: 26px; line-height: 1; }
-.orow:focus { border-color: var(--gold); background: var(--gold-soft); box-shadow: var(--glow); }
-.orow:focus .arrow { color: var(--gold); }
+.orow:focus { border-color: var(--now); background: var(--now-soft); box-shadow: var(--glow); }
+.orow:focus .arrow { color: var(--now); }
 /* Arabic font: a word in the chosen font beside its name. */
 .orow .val .sample { font-family: var(--arabic); font-weight: var(--arabic-weight); font-size: 24px; line-height: 1.3; color: var(--gold); white-space: nowrap; }
 /* While a reciter's voice previews, its name carries a small gold sound mark. */
@@ -304,16 +313,36 @@ button:focus .ar-name { background: var(--gilt); -webkit-background-clip: text; 
 .toasting .topline, .toasting .head { opacity: 0; }
 .toast {
   position: absolute; inset-inline: 0; inset-block-start: 14px; margin-inline: auto; inline-size: max-content; max-inline-size: 84%;
-  padding: 8px 18px; border-radius: 999px; border: 1.5px solid rgba(255, 210, 122, 0.6);
-  /* The same faint gold as before, but opaque (14% gold over black), so the rule and the text's frame
+  padding: 8px 18px; border-radius: 999px; border: 1.5px solid rgba(166, 230, 251, 0.6);
+  /* A faint cool light, opaque, so the rule and the text's frame
      under a two-line message never run through its words. */
-  color: var(--ink); font-size: 17px; background: rgb(36, 29, 17); text-wrap: balance; text-align: center;
+  color: var(--ink); font-size: 17px; background: rgb(20, 34, 40); text-wrap: balance; text-align: center;
 }
 /* In the reader a message stays above the text, even on the longest ayah: smaller type nearer the top,
    so two lines end at 54.5 px and the text box starts at 59 px. */
 .reader:not([hidden]) ~ .toast { inset-block-start: 4px; padding: 5px 16px; font-size: 15px; line-height: 1.25; max-inline-size: 90%; }
 
+/* ---- the recital: while a reciter plays and nothing is pressed, the lens belongs to the ayah --------- */
+.stage .controls { opacity: 0; pointer-events: none; }
+.stage .tip { opacity: 0; }
+.stage .topline { opacity: 0.55; }
+.stage .rule { opacity: 0.35; }
+.stage .meaning { opacity: 0.8; }
+.toasting .stage .topline { opacity: 0; }
+/* Learn, hands-free: one plain word says whose turn it is, where the controls were. */
+.learning.stage .topline { opacity: 0.85; }
+.toasting .learning.stage .topline { opacity: 0; }
+/* From memory: nothing on the lens gives the word away. It turns gold only after its moment has passed. */
+.memory .gloss, .memory .meaning { visibility: hidden; }
+.memory .ayah .w.now { background: none; color: transparent; filter: none; }
+.cue { position: absolute; inset-inline: 0; inset-block-end: 30px; display: flex; flex-direction: column; align-items: center; gap: 9px; pointer-events: none; }
+#cueText { font-size: 28px; font-weight: 650; line-height: 1.15; color: var(--now); }
+.cue-dots { display: flex; gap: 10px; }
+.cue-dots i { inline-size: 10px; block-size: 10px; border-radius: 50%; border: 1.5px solid var(--soft); }
+.cue-dots i.on { background: var(--now); border-color: var(--now); }
+
 @media (prefers-reduced-motion: no-preference) {
+  .reader .controls, .reader .topline, .reader .rule, .reader .meaning { transition: opacity 420ms cubic-bezier(0.2, 0, 0, 1); }
   button, .orow, .prow { transition: box-shadow 140ms ease, background-color 140ms ease, border-color 140ms ease, transform 90ms ease; }
   .tip { transition: opacity 180ms ease; }
   .ayah .w { transition: filter 140ms ease; }

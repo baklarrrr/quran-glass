@@ -3,13 +3,13 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="application-name" content="Quran Glass">
-  <meta name="apple-mobile-web-app-title" content="Quran Glass">
+  <meta name="application-name" content="Bakar Quran">
+  <meta name="apple-mobile-web-app-title" content="Bakar Quran">
   <meta name="description" content="Read a surah, listen to the recitation, and follow each word.">
   <meta name="mrbd-web-app-capable" content="yes">
   <meta name="robots" content="noindex, nofollow">
   <meta name="theme-color" content="#000000">
-  <title>Quran Glass</title>
+  <title>Bakar Quran</title>
   <link rel="icon" href="icon.svg" type="image/svg+xml">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="apple-touch-icon" sizes="192x192" href="icon-192.png">
@@ -24,7 +24,7 @@
     <!-- Home: carry on where you stopped, or pick a surah. -->
     <section id="home" class="screen" aria-labelledby="homeTitle">
       <header class="head">
-        <h1 id="homeTitle"><span class="title-ar" lang="ar" dir="rtl" translate="no">القرآن الكريم</span><span class="title-en">Quran Glass</span></h1>
+        <h1 id="homeTitle"><span class="title-ar" lang="ar" dir="rtl" translate="no">القرآن الكريم</span><span class="title-en">Quran · Bakar Studio</span></h1>
         <span class="headside"><span id="homeNote" class="dim"></span><span class="batt" data-batt hidden></span></span>
       </header>
       <button id="resume" class="card" data-tip="Carry on where you stopped" hidden>
@@ -35,6 +35,7 @@
       <div id="picks" class="picks"></div>
       <p id="homeHint" class="hint" hidden>Pick a surah. Follow a reciter word by word, or recite yourself and gild each word as you say it.</p>
       <div class="row3">
+        <button id="homeLearn" class="pill learn-pill" data-tip="Hands-free: hear it, say it, then from memory"><span>Learn</span></button>
         <button id="allSurahs" class="pill" data-tip="All 114 surahs, in order"><span>All surahs</span></button>
         <button id="homeProgress" class="pill" data-tip="Ayahs you recited, hints and time"><span>Progress</span></button>
         <button id="homeOptions" class="pill" data-tip="Reciter, font, effects and more"><span>Options</span></button>
@@ -90,6 +91,9 @@
         <button id="nextAyah" class="round" aria-label="Next ayah">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15.8 5H18v14h-2.2zM5 5.6v12.8a.8.8 0 0 0 1.2.7l8.3-6.4a.8.8 0 0 0 0-1.4L6.2 4.9a.8.8 0 0 0-1.2.7z"/></svg>
         </button>
+        <button id="learn" class="round" aria-label="Learn hands-free">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17 2l4 4-4 4V7H7a3 3 0 0 0-3 3v1H2v-1a5 5 0 0 1 5-5h10V2zM7 22l-4-4 4-4v3h10a3 3 0 0 0 3-3v-1h2v1a5 5 0 0 1-5 5H7v3z"/></svg>
+        </button>
         <button id="mode" class="round" aria-label="Recite it yourself">
           <svg id="modeListen" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a8 8 0 0 0-8 8v5.5A2.5 2.5 0 0 0 6.5 19H8v-7H6v-1a6 6 0 0 1 12 0v1h-2v7h1.5a2.5 2.5 0 0 0 2.5-2.5V11a8 8 0 0 0-8-8z"/></svg>
           <svg id="modeRecite" viewBox="0 0 24 24" aria-hidden="true" hidden><path d="M9.5 2.8a1.7 1.7 0 0 1 1.7 1.7v6.1l.9-.1V8.3a1.7 1.7 0 1 1 3.4 0v2.5l.6-.1a1.7 1.7 0 0 1 2 1.6v3.4c0 3.6-2.6 6.5-6.1 6.5h-.6a6 6 0 0 1-5-2.7l-2.6-4a1.6 1.6 0 0 1 2.4-2.1l1.6 1.4V4.5a1.7 1.7 0 0 1 1.7-1.7z"/></svg>
@@ -99,6 +103,7 @@
         </button>
       </div>
       <p id="tip" class="tip" aria-hidden="true"></p>
+      <div id="cue" class="cue" role="status" hidden><span id="cueText"></span><span class="cue-dots" aria-hidden="true"><i></i><i></i><i></i></span></div>
     </section>
 
     <!-- Progress: what was gilded (by his pinches or his phone's listening) and the hints he used, kept on the glasses. -->

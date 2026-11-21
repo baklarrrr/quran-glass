@@ -75,7 +75,7 @@ async function run() {
     for (const ch of [1,2,9,112]) {
       assert.equal((await call(ch)).reader_open,ch);
       const source = await data(ch);
-      await page.waitForFunction(text => document.querySelector('#ayah').textContent === text,source.ayahs[0]);
+      await page.waitForFunction(text => document.querySelector('#ayah').textContent === drawnText(text),source.ayahs[0]);
       assert.equal(await page.locator('#basmala').textContent(), source.basmala || '');
       assert.equal(await page.locator('#basmala').isVisible(),Boolean(source.basmala));
       assert.equal(await page.locator('#voice').isVisible(),false);
